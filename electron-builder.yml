@@ -17,6 +17,9 @@ linux:
     - deb
   category: Office
   executableName: epub-reader
+  icon: build/icon.png
+  # .desktop file name + StartupWMClass follow "desktopName" in package.json, matching the window's app id
+  syncDesktopName: true
   maintainer: Kevin
   mimeTypes:
     - application/epub+zip

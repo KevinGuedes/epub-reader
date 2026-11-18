@@ -11,6 +11,11 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'cover', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 
+// Linux: the window class (X11) / app id (Wayland) must match the installed .desktop file, otherwise the shell can't
+// associate the open window with its icon and shows a generic one. Must be set before the app is ready.
+app.commandLine.appendSwitch('class', 'epub-reader')
+app.setDesktopName('epub-reader.desktop')
+
 let mainWindow: BrowserWindow | null = null
 let db: Db | null = null
 
@@ -36,6 +41,17 @@ function createWindow(): BrowserWindow {
   })
 
   window.once('ready-to-show', () => window.show())
+
+  // Developer tools are only wired up when running from source (the menu that normally offers them is gone).
+  if (!app.isPackaged) {
+    window.webContents.on('before-input-event', (event, input) => {
+      const toggle = input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))
+      if (toggle) {
+        window.webContents.toggleDevTools()
+        event.preventDefault()
+      }
+    })
+  }
 
   // Links inside books open in the system browser; the app itself never navigates away.
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -82,7 +98,8 @@ if (!app.requestSingleInstanceLock()) {
 
     registerIpc(db, library)
 
-    if (app.isPackaged) Menu.setApplicationMenu(null)
+    // No application menu: its default accelerators (Ctrl +/-/0 zoom, F11, Ctrl+F...) would shadow the reader's own.
+    Menu.setApplicationMenu(null)
     mainWindow = createWindow()
     mainWindow.on('closed', () => {
       mainWindow = null

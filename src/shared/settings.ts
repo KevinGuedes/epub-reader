@@ -24,7 +24,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   lineHeight: 1.6,
   paragraphSpacing: 0.6,
   textWidth: 760,
-  textAlign: 'left'
+  textAlign: 'left',
+  autoHideBars: true
 }
 
 export const LIMITS = {
@@ -78,6 +79,7 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
     lineHeight: pickNumber(r.lineHeight, LIMITS.lineHeight.min, LIMITS.lineHeight.max, d.lineHeight),
     paragraphSpacing: pickNumber(r.paragraphSpacing, LIMITS.paragraphSpacing.min, LIMITS.paragraphSpacing.max, d.paragraphSpacing),
     textWidth,
-    textAlign: pickEnum(r.textAlign, ALIGNS, d.textAlign)
+    textAlign: pickEnum(r.textAlign, ALIGNS, d.textAlign),
+    autoHideBars: typeof r.autoHideBars === 'boolean' ? r.autoHideBars : d.autoHideBars
   }
 }

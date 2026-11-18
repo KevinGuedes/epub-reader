@@ -1,6 +1,6 @@
 # EPUB Reader
 
-Leitor de EPUB para desktop Linux. Funciona 100% offline, com scroll contínuo, personalização da leitura e posição salva.
+Leitor de EPUB para desktop Linux. Funciona 100% offline, com um capítulo por vez, personalização da leitura e posição salva.
 
 **Stack:** Electron + Vite (electron-vite) + React + TypeScript · epub.js (renderização) · epub2 (metadados/capa no main) · better-sqlite3 · zustand
 
@@ -25,7 +25,15 @@ npm run dist       # gera AppImage e .deb em dist/
 
 Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive no texto do livro. Dropdowns e barras de rolagem seguem as cores do tema.
 
-Atalhos: `↑ ↓ PgUp PgDn Espaço Home End` rolam; `Esc` fecha o painel aberto e depois volta à biblioteca.
+5. **Um capítulo por vez:** só o capítulo atual é carregado (a barra de rolagem não muda de tamanho enquanto você lê). Botões "← Capítulo anterior" / "Próximo capítulo →" aparecem no começo e no fim de cada capítulo. No fim do livro aparece "Fim do livro".
+6. **Busca no livro** (`Ctrl+F`): ignora maiúsculas, acentos e espaços repetidos; mostra "3 de 41", `Enter` / `Shift+Enter` navegam entre as ocorrências (até 500) e a atual fica destacada. Limitação: a frase precisa estar dentro de um mesmo trecho de texto (uma busca que atravessa `<em>`, por exemplo, não acha).
+7. **Tamanho da fonte:** `Ctrl +` / `Ctrl −` (12–40 px) e `Ctrl 0` volta ao padrão (19 px). Vale também com o foco dentro do texto.
+8. **Modo imersivo** (ligado por padrão; desligue em `Aa`): as barras de cima e de baixo somem após ~2,5 s sem uso. Elas voltam ao levar o mouse até a borda superior/inferior da janela, e ficam visíveis enquanto o mouse estiver sobre elas, houver painel ou busca abertos, ou o foco estiver nelas.
+9. **Tela cheia:** `F11` ou o botão no topo. `Esc` sai da tela cheia (sem voltar à biblioteca).
+
+Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive no texto do livro. Dropdowns e barras de rolagem seguem as cores do tema.
+
+Atalhos: `↑ ↓ PgUp PgDn Espaço Home End` rolam; `→` / `←` mudam de capítulo (também `PgDn`/`Espaço` no fim do capítulo e `PgUp`/`Shift+Espaço` no começo); `Ctrl+F` busca; `Ctrl +/−/0` fonte; `F11` tela cheia; `T` traduz a seleção; `Esc` fecha seleção, busca ou painel e, por fim, volta à biblioteca. Em desenvolvimento, `F12` abre as ferramentas do desenvolvedor (o app não tem barra de menus).
 
 ## Estrutura
 
@@ -42,8 +50,13 @@ Dados do app (banco e capas) ficam na pasta de dados do Electron, provavelmente 
 
 `contextIsolation`, `sandbox` e CSP estritos. O conteúdo do livro roda em iframe sem scripts. O renderer não acessa disco nem SQLite; só a API do preload, com argumentos validados no main. Links http(s) dentro do livro abrem no navegador do sistema.
 
+## Ícone no .deb
+
+O `.desktop` gerado casa com a janela por `desktopName` (`package.json`) + `StartupWMClass` + classe da janela (`epub-reader`). Se o ícone da barra de tarefas não aparecer depois de reinstalar, rode `xprop WM_CLASS` clicando na janela (X11) e confira se o valor é `epub-reader`; `sudo update-desktop-database` e `gtk-update-icon-cache` podem ser necessários, e às vezes é preciso sair/entrar da sessão.
+
 ## Limitações conhecidas
 
 - EPUBs com DRM não abrem. Só EPUB 2/3 sem DRM.
 - O progresso (%) é aproximado até as "locations" do livro serem calculadas na primeira abertura (alguns segundos em livros grandes; depois ficam em cache).
-- Sem anotações/destaques e sem busca no texto (a base para isso já existe: CFI + epub.js).
+- Sem anotações/destaques do usuário (a base para isso já existe: CFI + epub.js).
+- Ao abrir um livro cuja posição foi salva numa versão anterior (modo contínuo), a posição pode cair um parágrafo fora do lugar.

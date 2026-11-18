@@ -16,6 +16,7 @@ export interface ReaderSettings {
   paragraphSpacing: number // em
   textWidth: number // max text column width in px, 0 = full width
   textAlign: TextAlign
+  autoHideBars: boolean // hide the reader's top/bottom bars while reading (immersive mode)
 }
 
 export interface BookSummary {

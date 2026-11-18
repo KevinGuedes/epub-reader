@@ -158,6 +158,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
           <label className="check">
             <input
               type="checkbox"
+              checked={settings.autoHideBars}
+              onChange={(e) => patch({ autoHideBars: e.target.checked })}
+            />
+            Modo imersivo (esconder barras ao ler)
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
               checked={settings.textWidth === 0}
               onChange={(e) => patch({ textWidth: e.target.checked ? 0 : 760 })}
             />

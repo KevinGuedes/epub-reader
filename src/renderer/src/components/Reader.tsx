@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ePub, { type Book, type Contents, type Location, type NavItem, type Rendition } from 'epubjs'
 import { normalizeSelection } from '../../../shared/translate'
 import { useStore } from '../store'
-import { applyReaderStyle, injectReaderStyle, layoutKey } from '../themes'
+import { applyReaderStyle, injectReaderStyle, layoutKey, NAV_NEXT } from '../themes'
+import { useBookSearch } from '../useBookSearch'
 import { useDismissOutside } from '../useDismissOutside'
+import { LIMITS, DEFAULT_SETTINGS } from '../../../shared/settings'
+import { SearchBar } from './SearchBar'
 import { SettingsPanel } from './SettingsPanel'
 import { TocPanel } from './TocPanel'
 
@@ -22,7 +25,14 @@ const POPOVER_LABEL_CHARS = 24
 
 const SAVE_DEBOUNCE_MS = 600
 const REANCHOR_DEBOUNCE_MS = 250
+const REANCHOR_STABLE_MS = 300 // heights must stop changing for this long before the position is restored
+const REANCHOR_MAX_WAIT_MS = 6000
 const CHARS_PER_LOCATION = 1600
+
+const BARS_HIDE_MS = 300 // immersive mode: bars slide away after this much time without interaction
+const EDGE_REVEAL_PX = 56 // pointer this close to the top/bottom window edge brings the bars back
+const EDGE_THROTTLE_MS = 400
+const END_TOLERANCE_PX = 3
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -52,8 +62,11 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const lastCfiRef = useRef<string | null>(null)
   const lastLayoutRef = useRef(layoutKey(settings))
   const reanchorTimerRef = useRef<number | undefined>(undefined)
+  const reanchorCfiRef = useRef<string | null>(null)
   const seekTimerRef = useRef<number | undefined>(undefined)
   const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {})
+  const goChapterRef = useRef<(delta: 1 | -1, atEnd?: boolean) => void>(() => {})
+  const lastRevealRef = useRef(0)
   settingsRef.current = settings
 
   const [title, setTitle] = useState('')
@@ -64,6 +77,14 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [popover, setPopoverState] = useState<SelectionPopover | null>(null)
+  const [barsVisible, setBarsVisible] = useState(true)
+  const [revealTick, setRevealTick] = useState(0)
+  const [pointerOnBars, setPointerOnBars] = useState(false)
+  const [focusOnBars, setFocusOnBars] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [searchFocusToken, setSearchFocusToken] = useState(0)
+
+  const search = useBookSearch(bookRef, renditionRef, hostRef, bookId)
 
   // Drawers (índice / personalização) close when the user clicks anywhere outside them.
   const closePanel = useCallback(() => setPanel('none'), [])
@@ -91,6 +112,16 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     if (opened) clearSelection()
     else setPopover({ ...current, note: 'Não foi possível abrir o navegador' })
   }, [bookId, clearSelection, setPopover])
+
+  // Immersive mode: pointer near the top/bottom edge of the window (y in window coordinates) reveals the bars.
+  const edgeMove = useCallback((y: number) => {
+    if (y > EDGE_REVEAL_PX && y < window.innerHeight - EDGE_REVEAL_PX) return
+    const now = performance.now()
+    if (now - lastRevealRef.current < EDGE_THROTTLE_MS) return
+    lastRevealRef.current = now
+    setBarsVisible(true)
+    setRevealTick((t) => t + 1)
+  }, [])
 
   // ---------- open the book, restore position, persist progress ----------
   useEffect(() => {
@@ -130,13 +161,26 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         book = ePub(toArrayBuffer(bytes))
         bookRef.current = book
 
-        // Serialize hooks may rewrite a chapter's HTML (section.output) before it reaches the iframe.
-        book.spine.hooks.serialize.register((_output: string, section: { output: string }) => {
-          section.output = injectReaderStyle(section.output, settingsRef.current)
-        })
+        await book.ready
+        if (disposed || !hostRef.current) return
+
+        // Serialize hooks may rewrite a chapter's HTML (section.output) before it reaches the iframe. Registered only after
+        // the book is unpacked: epub.js' own resource-substitution hook is added then and would otherwise run after
+        // this one and overwrite its result.
+        book.spine.hooks.serialize.register(
+          (_output: string, section: { output: string; index: number; next(): unknown }) => {
+            section.output = injectReaderStyle(section.output, settingsRef.current, {
+              index: section.index,
+              last: !section.next()
+            })
+          }
+        )
+
+        // One chapter at a time: the scroll area never changes size while reading; chapters are changed with the
+        // buttons at their start/end (or the arrow keys).
         rendition = book.renderTo(hostRef.current, {
-          manager: 'continuous',
-          flow: 'scrolled',
+          manager: 'default',
+          flow: 'scrolled-doc',
           width: '100%',
           height: '100%',
           spread: 'none',
@@ -149,6 +193,19 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
           applyReaderStyle(contents, settingsRef.current)
           // The book lives in an iframe, so outside-click detection on the app document never sees clicks on the text.
           contents.document.addEventListener('mousedown', () => setPanel('none'))
+          // Own (non-passive) listener instead of rendition.on('keydown'): epub.js forwards keys passively, which makes
+          // preventDefault() a no-op and lets the browser also act on the key (double scroll, zoom...).
+          contents.document.addEventListener('keydown', (event) => keyHandlerRef.current(event))
+          contents.document.addEventListener('click', (event) => {
+            const button = (event.target as Element | null)?.closest?.('[data-reader-nav]')
+            if (button) goChapterRef.current(button.getAttribute('data-reader-nav') === NAV_NEXT ? 1 : -1)
+          })
+          // Immersive mode: the pointer near the top/bottom edge of the window brings the bars back.
+          contents.document.addEventListener('mousemove', (event) => {
+            const frame = contents.document.defaultView?.frameElement as HTMLIFrameElement | null
+            const top = frame?.getBoundingClientRect().top ?? 0
+            edgeMove(event.clientY + top)
+          })
           // Selection collapsed (click elsewhere, new chapter, Esc...) -> the popover no longer applies.
           contents.document.addEventListener('selectionchange', () => {
             if (contents.document.getSelection()?.isCollapsed) setPopover(null)
@@ -191,12 +248,14 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
 
         rendition.on('relocated', (location: Location) => {
           if (!book || !location?.start?.cfi) return
+          // While chapters are re-flowing after a layout change the visible position drifts; neither remember nor
+          // save those intermediate positions, the anchor taken before the change is restored afterwards.
+          if (reanchorCfiRef.current) return
           const value = percentOf(book, location)
           lastCfiRef.current = location.start.cfi
           setPercent(value)
           queueSave(location.start.cfi, value)
         })
-        rendition.on('keydown', (event: KeyboardEvent) => keyHandlerRef.current(event))
 
         if (savedLocations) {
           book.locations.load(savedLocations)
@@ -258,24 +317,148 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     const key = layoutKey(settings)
     if (key === lastLayoutRef.current) return
     lastLayoutRef.current = key
+
+    // Freeze the anchor at the first change of a burst (e.g. dragging a slider), then wait until every chapter has
+    // finished re-flowing (total height stops changing) before scrolling back to it.
+    if (!reanchorCfiRef.current) reanchorCfiRef.current = lastCfiRef.current
+    if (!reanchorCfiRef.current) return
     window.clearTimeout(reanchorTimerRef.current)
-    reanchorTimerRef.current = window.setTimeout(() => {
-      const cfi = lastCfiRef.current
-      if (cfi) void rendition.display(cfi)
-    }, REANCHOR_DEBOUNCE_MS)
+    const started = performance.now()
+    let lastHeight = -1
+    let stableSince = started
+    const poll = (): void => {
+      const now = performance.now()
+      const height = hostRef.current?.querySelector('.epub-container')?.scrollHeight ?? 0
+      if (height !== lastHeight) {
+        lastHeight = height
+        stableSince = now
+      }
+      if (now - stableSince < REANCHOR_STABLE_MS && now - started < REANCHOR_MAX_WAIT_MS) {
+        reanchorTimerRef.current = window.setTimeout(poll, 100)
+        return
+      }
+      const cfi = reanchorCfiRef.current
+      const release = (): void => {
+        reanchorTimerRef.current = window.setTimeout(() => {
+          reanchorCfiRef.current = null
+        }, 200) // let the 'relocated' event of this display() pass before tracking positions again
+      }
+      if (cfi) void rendition.display(cfi).then(release, release)
+      else reanchorCfiRef.current = null
+    }
+    reanchorTimerRef.current = window.setTimeout(poll, REANCHOR_DEBOUNCE_MS)
   }, [settings])
 
+  // ---------- immersive mode (auto-hide bars) ----------
+  const autoHide = settings.autoHideBars
+  const barsHeld = panel !== 'none' || search.open || pointerOnBars || focusOnBars
+  useEffect(() => {
+    if (!autoHide || barsHeld) {
+      setBarsVisible(true)
+      return
+    }
+    const timer = window.setTimeout(() => setBarsVisible(false), BARS_HIDE_MS)
+    return () => window.clearTimeout(timer)
+  }, [autoHide, barsHeld, revealTick])
+
+  useEffect(() => {
+    const onMove = (event: MouseEvent): void => edgeMove(event.clientY)
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [edgeMove])
+
+  // The bars leave/enter the layout when the mode changes, so the text area changes size.
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      try {
+        const host = hostRef.current
+        if (host) renditionRef.current?.resize(host.clientWidth, host.clientHeight)
+      } catch {
+        /* rendition not ready yet */
+      }
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [autoHide])
+
+  // ---------- fullscreen ----------
+  useEffect(() => {
+    const onChange = (): void => setFullscreen(document.fullscreenElement !== null)
+    document.addEventListener('fullscreenchange', onChange)
+    onChange()
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void document.documentElement.requestFullscreen().catch(() => {})
+  }, [])
+
+  // ---------- chapter navigation ----------
+  goChapterRef.current = (delta, atEnd = false): void => {
+    const rendition = renditionRef.current
+    const book = bookRef.current
+    if (!rendition || !book) return
+    const location = rendition.currentLocation() as unknown as Location | undefined
+    const index = location?.start?.index
+    if (typeof index !== 'number') return
+    const current = book.spine.get(index) as unknown as { next(): { href: string } | undefined; prev(): { href: string } | undefined } | null
+    const target = delta > 0 ? current?.next() : current?.prev()
+    if (!target) return
+    setPanel('none')
+    void rendition.display(target.href).then(() => {
+      const scroller = hostRef.current?.querySelector<HTMLElement>('.epub-container')
+      scroller?.scrollTo({ top: atEnd ? scroller.scrollHeight : 0 })
+    })
+  }
+
   // ---------- keyboard ----------
+  const changeFontSize = (next: number): void => {
+    const { min, max } = LIMITS.fontSize
+    useStore.getState().patchSettings({ fontSize: Math.min(max, Math.max(min, next)) })
+  }
+
   keyHandlerRef.current = (event: KeyboardEvent): void => {
     // Keys typed into a form control (or used to operate an open dropdown, whose focus sits on an <option>)
     // belong to that control: Esc must close the dropdown only, not the whole drawer.
+    const mod = (event.ctrlKey || event.metaKey) && !event.altKey
+
+    // Shortcuts with Ctrl work everywhere, including while a form control has focus.
+    if (mod && (event.key === 'f' || event.key === 'F')) {
+      setPanel('none')
+      search.openBar()
+      setSearchFocusToken((n) => n + 1)
+      event.preventDefault()
+      return
+    }
+    if (mod && (event.key === '+' || event.key === '=')) {
+      changeFontSize(settingsRef.current.fontSize + LIMITS.fontSize.step)
+      event.preventDefault()
+      return
+    }
+    if (mod && (event.key === '-' || event.key === '_')) {
+      changeFontSize(settingsRef.current.fontSize - LIMITS.fontSize.step)
+      event.preventDefault()
+      return
+    }
+    if (mod && event.key === '0') {
+      changeFontSize(DEFAULT_SETTINGS.fontSize)
+      event.preventDefault()
+      return
+    }
+    if (event.key === 'F11') {
+      toggleFullscreen()
+      event.preventDefault()
+      return
+    }
+
     const target = event.target as HTMLElement | null
     if (target?.closest?.('input, select, textarea, option')) return
 
     if (event.key === 'Escape') {
       if (popoverRef.current) clearSelection()
+      else if (search.open) search.closeBar()
       else if (panel !== 'none') setPanel('none')
-      else closeBook()
+      else if (!document.fullscreenElement) closeBook()
       return
     }
 
@@ -288,7 +471,15 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     const scroller = hostRef.current?.querySelector<HTMLElement>('.epub-container')
     if (!scroller) return
     const page = scroller.clientHeight * 0.9
+    const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - END_TOLERANCE_PX
+    const atTop = scroller.scrollTop <= END_TOLERANCE_PX
     switch (event.key) {
+      case 'ArrowRight':
+        goChapterRef.current(1)
+        break
+      case 'ArrowLeft':
+        goChapterRef.current(-1)
+        break
       case 'ArrowDown':
         scroller.scrollBy({ top: 60 })
         break
@@ -296,13 +487,16 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         scroller.scrollBy({ top: -60 })
         break
       case 'PageDown':
-        scroller.scrollBy({ top: page })
+        if (atBottom) goChapterRef.current(1)
+        else scroller.scrollBy({ top: page })
         break
       case 'PageUp':
-        scroller.scrollBy({ top: -page })
+        if (atTop) goChapterRef.current(-1, true)
+        else scroller.scrollBy({ top: -page })
         break
       case ' ':
-        scroller.scrollBy({ top: event.shiftKey ? -page : page })
+        if (event.shiftKey ? atTop : atBottom) goChapterRef.current(event.shiftKey ? -1 : 1, event.shiftKey)
+        else scroller.scrollBy({ top: event.shiftKey ? -page : page })
         break
       case 'Home':
         scroller.scrollTo({ top: 0 })
@@ -341,8 +535,14 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const togglePanel = (next: Exclude<Panel, 'none'>): void => setPanel((current) => (current === next ? 'none' : next))
 
   return (
-    <div className="screen reader">
-      <header className="topbar">
+    <div className={`screen reader${autoHide ? ' autohide' : ''}${fullscreen ? ' fullscreen' : ''}`}>
+      <header
+        className={`topbar${autoHide && !barsVisible ? ' bars-hidden' : ''}`}
+        onMouseEnter={() => setPointerOnBars(true)}
+        onMouseLeave={() => setPointerOnBars(false)}
+        onFocusCapture={() => setFocusOnBars(true)}
+        onBlurCapture={() => setFocusOnBars(false)}
+      >
         <button className="icon-btn" onClick={closeBook} aria-label="Voltar para a biblioteca" title="Biblioteca (Esc)">
           ←
         </button>
@@ -361,7 +561,16 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         >
           Aa
         </button>
+        <button
+          className="icon-btn"
+          onClick={toggleFullscreen}
+          aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+          title={fullscreen ? 'Sair da tela cheia (F11)' : 'Tela cheia (F11)'}
+        >
+          {fullscreen ? '🗗' : '⛶'}
+        </button>
       </header>
+      {search.open && <SearchBar search={search} focusToken={searchFocusToken} />}
 
       <div ref={stageRef} className="reader-stage">
         <div ref={hostRef} className="reader-host" />
@@ -391,7 +600,13 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         )}
       </div>
 
-      <footer className="progressbar">
+      <footer
+        className={`progressbar${autoHide && !barsVisible ? ' bars-hidden' : ''}`}
+        onMouseEnter={() => setPointerOnBars(true)}
+        onMouseLeave={() => setPointerOnBars(false)}
+        onFocusCapture={() => setFocusOnBars(true)}
+        onBlurCapture={() => setFocusOnBars(false)}
+      >
         <input
           type="range"
           min={0}

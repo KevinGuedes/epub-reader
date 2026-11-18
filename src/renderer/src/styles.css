@@ -660,3 +660,73 @@ option::checkmark {
 .toc-item:hover {
   background: var(--panel-hover);
 }
+
+/* ---------- immersive mode, search, chapter navigation ---------- */
+.reader.autohide .topbar,
+.reader.autohide .progressbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 12;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.reader.autohide .topbar {
+  top: 0;
+}
+.reader.autohide .progressbar {
+  bottom: 0;
+}
+.reader.autohide .topbar.bars-hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.reader.autohide .progressbar.bars-hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.reader.autohide .reader-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.searchbar {
+  position: absolute;
+  top: calc(var(--topbar-h) + 8px);
+  right: 16px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+}
+.searchbar input[type='text'] {
+  width: 220px;
+  padding: 6px 8px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.search-status {
+  margin-inline: 4px;
+  min-width: 78px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.searchbar .icon-btn:disabled {
+  opacity: 0.4;
+}
+
+/* The chapter iframe is as wide as the container *including* the vertical scrollbar, which would otherwise add a
+   horizontal scrollbar (and steal height). The strip hidden on the right is only page padding. */
+.reader-host .epub-container {
+  overflow-x: hidden !important;
+}

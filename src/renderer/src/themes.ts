@@ -31,6 +31,11 @@ const TEXT_ELEMENTS =
  * Builds the stylesheet injected into every chapter document. `!important` is deliberate: this is the user's
  * explicit reading preference and must override whatever the book's own CSS says.
  */
+// Chapter navigation: both <nav> elements are appended at the END of <body> (the top one is positioned absolutely)
+// so that no element is inserted before book content, which would shift every CFI element index.
+const NAV_TOP_OFFSET = 60 // below the toolbar that overlays the page in immersive mode
+const NAV_HEIGHT = 40
+
 export function buildReaderCss(s: ReaderSettings): string {
   const family = resolveFontFamily(s)
   const maxWidth = s.textWidth > 0 ? `${s.textWidth}px` : 'none'
@@ -48,7 +53,8 @@ body {
   text-align: ${s.textAlign} !important;
   max-width: ${maxWidth} !important;
   margin: 0 auto !important;
-  padding: 28px 28px 56px !important;
+  padding: ${NAV_TOP_OFFSET + NAV_HEIGHT + 28}px 28px 64px !important; /* clears the overlaid toolbar and the chapter nav */
+  position: relative !important;
   box-sizing: border-box !important;
   -webkit-font-smoothing: antialiased;
   overflow-wrap: break-word;
@@ -88,6 +94,50 @@ pre, code, kbd, samp {
 ::selection {
   background: ${s.linkColor}55;
 }
+.reader-nav {
+  display: flex !important;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: ${NAV_HEIGHT}px;
+}
+.reader-nav.top {
+  position: absolute;
+  top: ${NAV_TOP_OFFSET}px;
+  left: 28px;
+  right: 28px;
+}
+.reader-nav.bottom {
+  margin-top: 48px;
+  align-items: flex-start;
+  /* counted in the chapter height (unlike body padding), keeps the buttons clear of the overlaid progress bar */
+  padding-bottom: 56px;
+}
+.reader-nav button {
+  font: 600 14px/1.2 system-ui, "Noto Sans", sans-serif !important;
+  color: inherit !important;
+  background: color-mix(in srgb, ${s.color} 9%, transparent) !important;
+  border: 1px solid color-mix(in srgb, ${s.color} 28%, transparent) !important;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+.reader-nav button:hover {
+  background: color-mix(in srgb, ${s.color} 18%, transparent) !important;
+}
+.reader-nav button:focus-visible {
+  outline: 2px solid ${s.linkColor};
+  outline-offset: 2px;
+}
+.reader-nav button[hidden] {
+  display: none !important;
+}
+.reader-nav .end-note {
+  font: 14px/1.2 system-ui, sans-serif;
+  opacity: 0.7;
+  margin-left: auto;
+  padding: 10px 0;
+}
 `
 }
 
@@ -98,10 +148,31 @@ pre, code, kbd, samp {
  * jump, especially when a chapter is re-inserted above the viewport while scrolling up.
  * The same <style id> is updated later by applyReaderStyle, so there is only ever one.
  */
-export function injectReaderStyle(html: string, settings: ReaderSettings): string {
+export function injectReaderStyle(html: string, settings: ReaderSettings, position?: ChapterPosition): string {
   if (!/<\/head>/i.test(html)) return html
   const tag = `<style id="${STYLE_ID}">${buildReaderCss(settings)}</style>`
-  return html.replace(/<\/head>/i, () => `${tag}</head>`)
+  let out = html.replace(/<\/head>/i, () => `${tag}</head>`)
+  if (position) {
+    // Chapter navigation buttons are part of the HTML so the chapter is measured with them already in place.
+    out = out.replace(/<\/body>/i, () => `${navHtml('top', position)}${navHtml('bottom', position)}</body>`)
+  }
+  return out
+}
+
+export interface ChapterPosition {
+  index: number
+  last: boolean
+}
+
+export const NAV_PREV = 'prev'
+export const NAV_NEXT = 'next'
+
+function navHtml(where: 'top' | 'bottom', { index, last }: ChapterPosition): string {
+  const prev = index > 0 ? `<button type="button" data-reader-nav="${NAV_PREV}">← Capítulo anterior</button>` : '<span></span>'
+  const next = last
+    ? '<span class="end-note">Fim do livro</span>'
+    : `<button type="button" data-reader-nav="${NAV_NEXT}">Próximo capítulo →</button>`
+  return `<nav class="reader-nav ${where}">${prev}${next}</nav>`
 }
 
 /** (Re)applies the reader stylesheet to one chapter document. Safe to call repeatedly. */
