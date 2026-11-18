@@ -1,0 +1,22 @@
+appId: dev.epubreader.app
+productName: EPUB Reader
+directories:
+  buildResources: build
+files:
+  - out/**/*
+  - build/icon.png
+  - package.json
+# better-sqlite3 ships N-API prebuilt binaries (no compilation, same binary works in Node and Electron),
+# so there is nothing to rebuild; the .node files just have to live outside the asar archive.
+npmRebuild: false
+asarUnpack:
+  - '**/*.node'
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  executableName: epub-reader
+  maintainer: Kevin
+  mimeTypes:
+    - application/epub+zip

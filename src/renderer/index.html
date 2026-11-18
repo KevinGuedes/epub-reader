@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Strict CSP. The EPUB content is untrusted HTML rendered in sandboxed iframes: scripts inside books never run.
+      blob: is required because epub.js serves book resources (images, fonts, css) from blob URLs.
+      base-uri is deliberately not restricted: epub.js sets a <base> in every chapter document, and
+      'base-uri none' makes the browser log a violation per chapter.
+      The two double-underscore placeholders in the policy are filled in by electron.vite.config.ts
+      (looser in dev, for Vite HMR).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src __SCRIPT_SRC__; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: cover:; font-src 'self' data: blob:; connect-src __CONNECT_SRC__ blob: data:; frame-src 'self' blob: data:; object-src 'none'"
+    />
+    <title>EPUB Reader</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
