@@ -29,7 +29,7 @@ const REANCHOR_STABLE_MS = 300 // heights must stop changing for this long befor
 const REANCHOR_MAX_WAIT_MS = 6000
 const CHARS_PER_LOCATION = 1600
 
-const BARS_HIDE_MS = 300 // immersive mode: bars slide away after this much time without interaction
+const BARS_HIDE_MS = 1500 // immersive mode: bars slide away after this much time without interaction
 const EDGE_REVEAL_PX = 56 // pointer this close to the top/bottom window edge brings the bars back
 const EDGE_THROTTLE_MS = 400
 const END_TOLERANCE_PX = 3
