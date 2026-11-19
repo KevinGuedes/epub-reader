@@ -352,6 +352,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
 
   // ---------- immersive mode (auto-hide bars) ----------
   const autoHide = settings.autoHideBars
+  // Focus only keeps the bars open for keyboard navigation (:focus-visible); a mouse click leaves focus on the button too.
   const barsHeld = panel !== 'none' || search.open || pointerOnBars || focusOnBars
   useEffect(() => {
     if (!autoHide || barsHeld) {
@@ -530,7 +531,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         className={`topbar${autoHide && !barsVisible ? ' bars-hidden' : ''}`}
         onMouseEnter={() => setPointerOnBars(true)}
         onMouseLeave={() => setPointerOnBars(false)}
-        onFocusCapture={() => setFocusOnBars(true)}
+        onFocusCapture={(e) => setFocusOnBars((e.target as HTMLElement).matches(':focus-visible'))}
         onBlurCapture={() => setFocusOnBars(false)}
       >
         <button className="icon-btn" onClick={closeBook} aria-label="Voltar para a biblioteca" title="Biblioteca (Esc)">
@@ -582,7 +583,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         className={`progressbar${autoHide && !barsVisible ? ' bars-hidden' : ''}`}
         onMouseEnter={() => setPointerOnBars(true)}
         onMouseLeave={() => setPointerOnBars(false)}
-        onFocusCapture={() => setFocusOnBars(true)}
+        onFocusCapture={(e) => setFocusOnBars((e.target as HTMLElement).matches(':focus-visible'))}
         onBlurCapture={() => setFocusOnBars(false)}
       >
         <input
