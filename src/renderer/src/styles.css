@@ -730,3 +730,16 @@ option::checkmark {
 .reader-host .epub-container {
   overflow-x: hidden !important;
 }
+
+.toggle-btn {
+  font-size: 13px;
+  color: var(--muted);
+}
+.toggle-btn.on {
+  color: var(--fg);
+  background: var(--panel-hover);
+  border-color: var(--border);
+}
+.topbar .toggle-btn {
+  margin-left: auto; /* keeps [Imersivo][Aa][tela cheia] pinned to the right edge on every screen */
+}

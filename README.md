@@ -33,6 +33,8 @@ Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive 
 
 Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive no texto do livro. Dropdowns e barras de rolagem seguem as cores do tema.
 
+Topo (biblioteca e leitura, mesma posição): `Imersivo` liga/desliga o modo imersivo, `Aa` abre a personalização e o último botão alterna tela cheia.
+
 Atalhos: `↑ ↓ PgUp PgDn Espaço Home End` rolam; `→` / `←` mudam de capítulo (também `PgDn`/`Espaço` no fim do capítulo e `PgUp`/`Shift+Espaço` no começo); `Ctrl+F` busca; `Ctrl +/−/0` fonte; `F11` tela cheia; `T` traduz a seleção; `Esc` fecha seleção, busca ou painel e, por fim, volta à biblioteca. Em desenvolvimento, `F12` abre as ferramentas do desenvolvedor (o app não tem barra de menus).
 
 ## Estrutura

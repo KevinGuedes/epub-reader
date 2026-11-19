@@ -3,6 +3,8 @@ import type { BookSummary, ScanOutcome, ScanProgress } from '../../../shared/typ
 import { useStore } from '../store'
 import { useDismissOutside } from '../useDismissOutside'
 import { SettingsPanel } from './SettingsPanel'
+import { TopbarActions } from './TopbarActions'
+import { useFullscreen } from '../useFullscreen'
 
 type SortKey = 'recent' | 'title' | 'author' | 'added'
 
@@ -50,6 +52,17 @@ export function Library(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('recent')
   const [showSettings, setShowSettings] = useState(false)
+  const { fullscreen, toggleFullscreen } = useFullscreen()
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'F11') {
+        toggleFullscreen()
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleFullscreen])
   const closeSettings = useCallback(() => setShowSettings(false), [])
   useDismissOutside(showSettings, closeSettings)
 
@@ -121,15 +134,11 @@ export function Library(): React.JSX.Element {
             </option>
           ))}
         </select>
-        <button
-          className="icon-btn"
-          data-drawer-toggle
-          onClick={() => setShowSettings((v) => !v)}
-          aria-label="Personalizar leitura"
-          title="Personalizar leitura"
-        >
-          Aa
-        </button>
+        <TopbarActions
+          onToggleSettings={() => setShowSettings((v) => !v)}
+          fullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
+        />
       </header>
 
       {dir && (

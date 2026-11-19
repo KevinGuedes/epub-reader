@@ -7,6 +7,8 @@ import { useBookSearch } from '../useBookSearch'
 import { useDismissOutside } from '../useDismissOutside'
 import { LIMITS, DEFAULT_SETTINGS } from '../../../shared/settings'
 import { SearchBar } from './SearchBar'
+import { TopbarActions } from './TopbarActions'
+import { useFullscreen } from '../useFullscreen'
 import { SettingsPanel } from './SettingsPanel'
 import { TocPanel } from './TocPanel'
 
@@ -81,7 +83,6 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const [revealTick, setRevealTick] = useState(0)
   const [pointerOnBars, setPointerOnBars] = useState(false)
   const [focusOnBars, setFocusOnBars] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
   const [searchFocusToken, setSearchFocusToken] = useState(0)
 
   const search = useBookSearch(bookRef, renditionRef, hostRef, bookId)
@@ -380,18 +381,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     return () => window.cancelAnimationFrame(id)
   }, [autoHide])
 
-  // ---------- fullscreen ----------
-  useEffect(() => {
-    const onChange = (): void => setFullscreen(document.fullscreenElement !== null)
-    document.addEventListener('fullscreenchange', onChange)
-    onChange()
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
-
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) void document.exitFullscreen()
-    else void document.documentElement.requestFullscreen().catch(() => {})
-  }, [])
+  const { fullscreen, toggleFullscreen } = useFullscreen()
 
   // ---------- chapter navigation ----------
   goChapterRef.current = (delta, atEnd = false): void => {
@@ -552,23 +542,11 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         <div className="reader-title" title={title}>
           {title}
         </div>
-        <button
-          className="icon-btn"
-          data-drawer-toggle
-          onClick={() => togglePanel('settings')}
-          aria-label="Personalizar leitura"
-          title="Personalizar leitura"
-        >
-          Aa
-        </button>
-        <button
-          className="icon-btn"
-          onClick={toggleFullscreen}
-          aria-label={fullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
-          title={fullscreen ? 'Sair da tela cheia (F11)' : 'Tela cheia (F11)'}
-        >
-          {fullscreen ? '🗗' : '⛶'}
-        </button>
+        <TopbarActions
+          onToggleSettings={() => togglePanel('settings')}
+          fullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
+        />
       </header>
       {search.open && <SearchBar search={search} focusToken={searchFocusToken} />}
 
