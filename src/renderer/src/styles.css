@@ -714,7 +714,6 @@ option::checkmark {
   border-radius: var(--radius);
 }
 .search-status {
-  margin-inline: 4px;
   min-width: 78px;
   color: var(--muted);
   font-size: 13px;
@@ -742,4 +741,11 @@ option::checkmark {
 }
 .topbar .toggle-btn {
   margin-left: auto; /* keeps [Imersivo][Aa][tela cheia] pinned to the right edge on every screen */
+}
+
+/* Immersive mode: the scrollbar disappears together with the bars. Only its colors change (no layout shift), and it
+   comes back while scrolling, when the bars do, or when the pointer reaches the right edge of the window. */
+.reader.sb-off ::-webkit-scrollbar-thumb,
+.reader.sb-off ::-webkit-scrollbar-thumb:hover {
+  background: transparent;
 }

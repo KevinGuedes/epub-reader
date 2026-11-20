@@ -31,10 +31,12 @@ const REANCHOR_STABLE_MS = 300 // heights must stop changing for this long befor
 const REANCHOR_MAX_WAIT_MS = 6000
 const CHARS_PER_LOCATION = 1600
 
-const BARS_HIDE_MS = 1500 // immersive mode: bars slide away after this much time without interaction
+const BARS_HIDE_MS = 2500 // immersive mode: bars slide away after this much time without interaction
 const EDGE_REVEAL_PX = 56 // pointer this close to the top/bottom window edge brings the bars back
 const EDGE_THROTTLE_MS = 400
 const END_TOLERANCE_PX = 3
+const SCROLLBAR_REVEAL_PX = 24
+const SCROLLBAR_IDLE_MS = 1000 // scrollbar stays visible this long after the last scroll
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
@@ -69,6 +71,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {})
   const goChapterRef = useRef<(delta: 1 | -1, atEnd?: boolean) => void>(() => {})
   const lastRevealRef = useRef(0)
+  const scrollIdleRef = useRef<number | undefined>(undefined)
   settingsRef.current = settings
 
   const [title, setTitle] = useState('')
@@ -84,6 +87,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const [pointerOnBars, setPointerOnBars] = useState(false)
   const [focusOnBars, setFocusOnBars] = useState(false)
   const [searchFocusToken, setSearchFocusToken] = useState(0)
+  const [scrolling, setScrolling] = useState(false)
 
   const search = useBookSearch(bookRef, renditionRef, hostRef, bookId)
 
@@ -115,8 +119,10 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   }, [bookId, clearSelection, setPopover])
 
   // Immersive mode: pointer near the top/bottom edge of the window (y in window coordinates) reveals the bars.
-  const edgeMove = useCallback((y: number) => {
-    if (y > EDGE_REVEAL_PX && y < window.innerHeight - EDGE_REVEAL_PX) return
+  const edgeMove = useCallback((x: number, y: number) => {
+    // The right edge counts too: that is where the (hidden) scrollbar is, and it must be reachable to drag it.
+    const nearSide = x >= window.innerWidth - SCROLLBAR_REVEAL_PX
+    if (!nearSide && y > EDGE_REVEAL_PX && y < window.innerHeight - EDGE_REVEAL_PX) return
     const now = performance.now()
     if (now - lastRevealRef.current < EDGE_THROTTLE_MS) return
     lastRevealRef.current = now
@@ -204,8 +210,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
           // Immersive mode: the pointer near the top/bottom edge of the window brings the bars back.
           contents.document.addEventListener('mousemove', (event) => {
             const frame = contents.document.defaultView?.frameElement as HTMLIFrameElement | null
-            const top = frame?.getBoundingClientRect().top ?? 0
-            edgeMove(event.clientY + top)
+            const box = frame?.getBoundingClientRect()
+            edgeMove(event.clientX + (box?.left ?? 0), event.clientY + (box?.top ?? 0))
           })
           // Selection collapsed (click elsewhere, new chapter, Esc...) -> the popover no longer applies.
           contents.document.addEventListener('selectionchange', () => {
@@ -242,10 +248,17 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
 
         // Scrolling moves the text away from the popover: dismiss it instead of leaving it floating.
         // epub.js creates .epub-container asynchronously and 'scroll' does not bubble, so listen in the capture phase.
-        hostRef.current.addEventListener('scroll', () => popoverRef.current && setPopover(null), {
-          capture: true,
-          passive: true
-        })
+        hostRef.current.addEventListener(
+          'scroll',
+          () => {
+            if (popoverRef.current) setPopover(null)
+            // Immersive mode: the scrollbar shows while scrolling (like an overlay scrollbar) and fades after a pause.
+            setScrolling(true)
+            window.clearTimeout(scrollIdleRef.current)
+            scrollIdleRef.current = window.setTimeout(() => setScrolling(false), SCROLLBAR_IDLE_MS)
+          },
+          { capture: true, passive: true }
+        )
 
         rendition.on('relocated', (location: Location) => {
           if (!book || !location?.start?.cfi) return
@@ -364,7 +377,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   }, [autoHide, barsHeld, revealTick])
 
   useEffect(() => {
-    const onMove = (event: MouseEvent): void => edgeMove(event.clientY)
+    const onMove = (event: MouseEvent): void => edgeMove(event.clientX, event.clientY)
     window.addEventListener('mousemove', onMove)
     return () => window.removeEventListener('mousemove', onMove)
   }, [edgeMove])
@@ -526,7 +539,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const togglePanel = (next: Exclude<Panel, 'none'>): void => setPanel((current) => (current === next ? 'none' : next))
 
   return (
-    <div className={`screen reader${autoHide ? ' autohide' : ''}${fullscreen ? ' fullscreen' : ''}`}>
+    <div className={`screen reader${autoHide ? ' autohide' : ''}${autoHide && !barsVisible && !scrolling ? ' sb-off' : ''}${fullscreen ? ' fullscreen' : ''}`}>
       <header
         className={`topbar${autoHide && !barsVisible ? ' bars-hidden' : ''}`}
         onMouseEnter={() => setPointerOnBars(true)}
