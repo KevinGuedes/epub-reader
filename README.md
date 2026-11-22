@@ -17,7 +17,9 @@ npm run dist       # gera AppImage e .deb em dist/
 
 ## Funcionalidades
 
-1. **Pasta de livros:** na primeira abertura você escolhe a pasta. Ela é varrida recursivamente atrás de `*.epub` (pastas ocultas são ignoradas) e a escolha fica salva. Ao abrir o app, e no botão "Atualizar", só arquivos novos/alterados são reindexados; arquivos removidos saem da biblioteca. Se a pasta estiver indisponível (disco desmontado, por exemplo), nada é apagado.
+1. **Pasta de livros:** na primeira abertura você escolhe a pasta. Ela é varrida recursivamente atrás de `*.epub` (pastas ocultas são ignoradas) e a escolha fica salva. Ao abrir o app, e no botão "Atualizar", só arquivos novos/alterados são reindexados. Se a pasta estiver indisponível (disco desmontado, por exemplo), nada muda.
+
+   **Identidade do livro = conteúdo (SHA-256 do arquivo), não o caminho.** Consequências: renomear ou mover um `.epub` mantém posição e % lido; o mesmo livro em duas pastas (ou duas cópias na mesma pasta) é um só livro, com uma só posição; ao trocar de pasta, os livros que não estão na nova pasta ficam *ausentes* (somem da lista, mas banco, posição, locations e capa são mantidos) e voltam com tudo intacto quando o arquivo reaparece, em qualquer pasta. Um arquivo editado no mesmo caminho continua sendo o mesmo livro (posição mantida, `locations` recalculado). O hash só é calculado para arquivos novos ou alterados (caminho, tamanho e data diferentes do registrado); a primeira varredura após atualizar o app calcula o hash de toda a biblioteca uma vez. A pasta vazia não esconde nada. Nada é apagado automaticamente (para limpar o histórico de livros ausentes, apague `library.db`).
 2. **Personalização** (ícone `Aa`): temas Areia (padrão), Claro, Sépia, Café, Escuro e Preto, mais cores livres de fundo, texto e links (sliders e controles seguem as cores do tema); fonte (do livro, serifada, sem serifa, monoespaçada ou qualquer fonte instalada); tamanho; espaçamento entre linhas; espaço entre parágrafos; largura da coluna; alinhamento. Aplica ao vivo e vale para todos os livros.
 3. **Posição de leitura:** salva por CFI (debounce de 600 ms, e ao fechar). Sobrevive a mudança de fonte/tamanho. A biblioteca mostra o % lido e ordena por "lidos recentemente".
 
@@ -51,6 +53,10 @@ Dados do app (banco e capas) ficam na pasta de dados do Electron, provavelmente 
 ## Segurança
 
 `contextIsolation`, `sandbox` e CSP estritos. O conteúdo do livro roda em iframe sem scripts. O renderer não acessa disco nem SQLite; só a API do preload, com argumentos validados no main. Links http(s) dentro do livro abrem no navegador do sistema.
+
+## Abrir com…
+
+O `.deb` registra o app para `application/epub+zip` (campo `MimeType` do `.desktop`, `Exec` com `%U`); depois de instalar, `.epub` no gerenciador de arquivos mostra "EPUB Reader" em "Abrir com" (para o duplo clique, escolha "Sempre" ou `xdg-mime default epub-reader.desktop application/epub+zip`). Um arquivo que já está na biblioteca abre como o livro cadastrado (posição salva); qualquer outro abre **somente leitura**, sem entrar no banco e sem guardar posição. Com o app aberto, o arquivo é aberto na mesma janela. O AppImage não se registra sozinho no sistema.
 
 ## Ícone no .deb
 

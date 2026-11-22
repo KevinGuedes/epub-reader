@@ -6,12 +6,14 @@ import { buildTranslateUrl, normalizeSelection } from '../shared/translate'
 import type { ReaderSettings, ScanOutcome } from '../shared/types'
 import { getSetting, setSetting, type Db } from './db'
 import type { Library } from './library'
+import type { ExternalBooks } from './openwith'
 
 const LIBRARY_DIR_KEY = 'libraryDir'
 const READER_SETTINGS_KEY = 'reader'
 
-function toId(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw new Error('Invalid book id')
+/** Library books have positive ids; read-only books opened from outside the library have negative ones. */
+function toBookRef(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value === 0) throw new Error('Invalid book id')
   return value
 }
 
@@ -34,7 +36,12 @@ function handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: 
   })
 }
 
-export function registerIpc(db: Db, library: Library): void {
+export interface OpenWith {
+  external: ExternalBooks
+  takePending(): number | null
+}
+
+export function registerIpc(db: Db, library: Library, openWith: OpenWith): void {
   const getDir = (): string | null => getSetting<string>(db, LIBRARY_DIR_KEY) ?? null
 
   let scanning: Promise<ScanOutcome> | null = null
@@ -83,22 +90,32 @@ export function registerIpc(db: Db, library: Library): void {
   handle(CH.libraryList, () => library.list())
 
   handle(CH.bookRead, async (_event, id) => {
-    const path = library.getBookPath(toId(id))
+    const ref = toBookRef(id)
+    const path = ref < 0 ? openWith.external.getPath(ref) : library.getBookPath(ref)
     if (!path) throw new Error('Book not found')
     const data = await fs.readFile(path)
     return new Uint8Array(data)
   })
 
-  handle(CH.bookGetProgress, (_event, id) => library.getProgress(toId(id)))
-
-  handle(CH.bookSaveProgress, (_event, id, cfi, percent) => {
-    library.saveProgress(toId(id), toString(cfi, 4096), typeof percent === 'number' ? percent : 0)
+  // External (negative id) books have no stored progress or locations: reading them leaves no trace.
+  handle(CH.bookGetProgress, (_event, id) => {
+    const ref = toBookRef(id)
+    return ref < 0 ? null : library.getProgress(ref)
   })
 
-  handle(CH.bookGetLocations, (_event, id) => library.getLocations(toId(id)))
+  handle(CH.bookSaveProgress, (_event, id, cfi, percent) => {
+    const ref = toBookRef(id)
+    if (ref > 0) library.saveProgress(ref, toString(cfi, 4096), typeof percent === 'number' ? percent : 0)
+  })
+
+  handle(CH.bookGetLocations, (_event, id) => {
+    const ref = toBookRef(id)
+    return ref < 0 ? null : library.getLocations(ref)
+  })
 
   handle(CH.bookSaveLocations, (_event, id, json) => {
-    library.saveLocations(toId(id), toString(json, 8 * 1024 * 1024))
+    const ref = toBookRef(id)
+    if (ref > 0) library.saveLocations(ref, toString(json, 8 * 1024 * 1024))
   })
 
   // The URL is built here from validated text; the renderer can never ask us to open an arbitrary URL.
@@ -106,12 +123,15 @@ export function registerIpc(db: Db, library: Library): void {
     const clean = normalizeSelection(toString(text, 1000))
     if (!clean) return false
     try {
-      await shell.openExternal(buildTranslateUrl(clean, library.getLanguage(toId(id))))
+      const ref = toBookRef(id)
+      await shell.openExternal(buildTranslateUrl(clean, ref > 0 ? library.getLanguage(ref) : null))
       return true
     } catch {
       return false
     }
   })
+
+  handle(CH.openTakePending, () => openWith.takePending())
 
   handle(CH.settingsGet,() => sanitizeSettings(getSetting<unknown>(db, READER_SETTINGS_KEY)))
 

@@ -11,6 +11,8 @@ export const CH = {
   bookGetLocations: 'book:get-locations',
   bookSaveLocations: 'book:save-locations',
   translateOpen: 'translate:open',
+  openTakePending: 'open:take-pending',
+  openRequested: 'open:requested',
   settingsGet: 'settings:get',
   settingsSave: 'settings:save'
 } as const

@@ -66,6 +66,10 @@ export interface Api {
   saveLocations(id: number, json: string): Promise<void>
   /** Opens Google Translate (-> pt-BR) for the selected text in the system browser. Resolves false on failure. */
   openTranslate(bookId: number, text: string): Promise<boolean>
+  /** Book the OS asked us to open ("Open with"); returned once. Negative ids are read-only books outside the library. */
+  takePendingOpen(): Promise<number | null>
+  /** Fires when another "Open with" request arrives while the app is running (then call takePendingOpen). */
+  onOpenRequested(callback: () => void): () => void
   getSettings(): Promise<ReaderSettings>
   saveSettings(settings: ReaderSettings): Promise<ReaderSettings>
 }

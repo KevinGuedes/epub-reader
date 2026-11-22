@@ -21,6 +21,14 @@ const api: Api = {
   getLocations: (id) => ipcRenderer.invoke(CH.bookGetLocations, id),
   saveLocations: (id, json) => ipcRenderer.invoke(CH.bookSaveLocations, id, json),
   openTranslate: (bookId, text) => ipcRenderer.invoke(CH.translateOpen, bookId, text),
+  takePendingOpen: () => ipcRenderer.invoke(CH.openTakePending),
+  onOpenRequested: (callback) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(CH.openRequested, listener)
+    return () => {
+      ipcRenderer.removeListener(CH.openRequested, listener)
+    }
+  },
   getSettings: () => ipcRenderer.invoke(CH.settingsGet),
   saveSettings: (settings) => ipcRenderer.invoke(CH.settingsSave, settings)
 }

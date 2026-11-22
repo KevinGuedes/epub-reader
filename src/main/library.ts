@@ -1,4 +1,5 @@
-import { promises as fs, type Dirent } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream, promises as fs, type Dirent } from 'node:fs'
 import { basename, extname, join, sep } from 'node:path'
 import { EPub } from 'epub2'
 import type { Db } from './db'
@@ -19,7 +20,8 @@ interface ParsedMeta {
 
 interface KnownBook {
   id: number
-  path: string
+  path: string | null // null = not in the current folder (absent)
+  hash: string | null
   size: number
   mtime_ms: number
   cover_path: string | null
@@ -54,6 +56,7 @@ export class Library {
                 COALESCE(p.percent, 0) AS percent, p.updated_at AS last_read_at
            FROM books b
            LEFT JOIN reading_progress p ON p.book_id = b.id
+          WHERE b.path IS NOT NULL
           ORDER BY COALESCE(p.updated_at, 0) DESC, b.title COLLATE NOCASE`
       )
       .all() as Array<{
@@ -79,6 +82,11 @@ export class Library {
   getBookPath(id: number): string | null {
     const row = this.db.prepare('SELECT path FROM books WHERE id = ?').get(id) as { path: string } | undefined
     return row?.path ?? null
+  }
+
+  findIdByPath(path: string): number | null {
+    const row = this.db.prepare('SELECT id FROM books WHERE path = ?').get(path) as { id: number } | undefined
+    return row?.id ?? null
   }
 
   getLanguage(id: number): string | null {
@@ -152,77 +160,147 @@ export class Library {
       }
     }
 
-    const known = new Map<string, KnownBook>()
-    for (const row of this.db.prepare('SELECT id, path, size, mtime_ms, cover_path FROM books').all() as KnownBook[]) {
-      known.set(row.path, row)
+    const rows = this.db.prepare('SELECT id, path, hash, size, mtime_ms, cover_path FROM books').all() as KnownBook[]
+    const byPath = new Map<string, KnownBook>()
+    const byHash = new Map<string, KnownBook>()
+    for (const row of rows) {
+      if (row.path) byPath.set(row.path, row)
+      if (row.hash) byHash.set(row.hash, row)
     }
+    const paths = [...found.keys()].sort()
 
-    const toIndex: Array<{ path: string; file: FoundFile; isNew: boolean }> = []
-    for (const [path, file] of found) {
-      const existing = known.get(path)
-      if (!existing) toIndex.push({ path, file, isNew: true })
-      else if (existing.size !== file.size || existing.mtime_ms !== file.mtimeMs) toIndex.push({ path, file, isNew: false })
-    }
-
-    // Guard against wiping the library when the folder is e.g. an unmounted drive's empty mount point.
-    let removed = 0
-    if (found.size > 0) {
-      for (const [path, book] of known) {
-        if (found.has(path)) continue
-        this.db.prepare('DELETE FROM books WHERE id = ?').run(book.id)
-        await removeFileQuietly(book.cover_path)
-        removed++
+    // 1. Content hashes. Files whose path, size and mtime are unchanged keep the hash we already have.
+    const hashes = new Map<string, string | null>()
+    const needHash = paths.filter((path) => {
+      const row = byPath.get(path)
+      const file = found.get(path)!
+      if (row?.hash && row.size === file.size && row.mtime_ms === file.mtimeMs) {
+        hashes.set(path, row.hash)
+        return false
       }
-    }
-
+      return true
+    })
     let done = 0
-    let added = 0
-    let updated = 0
-    let unreadable = 0
     let lastEmit = 0
-    const emit = (force = false): void => {
+    const emit = (total: number, force = false): void => {
       const now = Date.now()
       if (!force && now - lastEmit < 60) return
       lastEmit = now
-      onProgress({ phase: 'indexing', done, total: toIndex.length })
+      onProgress({ phase: 'indexing', done, total })
     }
-    emit(true)
-
-    await mapPool(toIndex, PARSE_CONCURRENCY, async ({ path, file, isNew }) => {
-      const meta = await readMeta(path)
-      if (meta.unreadable) unreadable++
-      await this.upsertBook(path, file, meta, known.get(path)?.cover_path ?? null)
-      if (isNew) added++
-      else updated++
+    emit(needHash.length, true)
+    await mapPool(needHash, PARSE_CONCURRENCY, async (path) => {
+      hashes.set(path, await hashFile(path))
       done++
-      emit()
+      emit(needHash.length)
     })
 
-    onProgress({ phase: 'done', done: toIndex.length, total: toIndex.length })
-    return { total: found.size, added, updated, removed, unreadable }
+    // 2. Decide, for every file, which book it is. Pass 1: content we already know (moved, renamed, back from another
+    //    folder). Pass 2: unknown content either replaced the file of an existing book in place, or is a new book.
+    const owner = new Map<number, string>() // book id -> the path it will have
+    const seen = new Set<string>()
+    const duplicates = new Set<string>() // second copies of the same content: ignored
+    const unresolved: string[] = []
+    // Files that already are where their book says go first, so a book with two identical copies stays put.
+    const inPlace = (path: string): boolean => byPath.get(path)?.hash === hashes.get(path)
+    const ordered = [...paths].sort((a, b) => Number(inPlace(b)) - Number(inPlace(a)))
+    for (const path of ordered) {
+      const hash = hashes.get(path)
+      if (!hash) continue // unreadable file
+      if (seen.has(hash)) {
+        duplicates.add(path)
+        continue
+      }
+      seen.add(hash)
+      const row = byHash.get(hash)
+      if (row) owner.set(row.id, path)
+      else unresolved.push(path)
+    }
+    const reindex: Array<{ row: KnownBook | null; path: string; hash: string }> = []
+    for (const path of unresolved) {
+      const hash = hashes.get(path)!
+      const file = found.get(path)!
+      const row = byPath.get(path)
+      if (row && !owner.has(row.id)) {
+        owner.set(row.id, path)
+        // A book without a hash yet (library from an older version) whose file is untouched only needs its hash
+        // recorded, which step 3 does; anything else was replaced and is re-read.
+        if (!(row.hash === null && row.size === file.size && row.mtime_ms === file.mtimeMs)) reindex.push({ row, path, hash })
+      } else {
+        reindex.push({ row: null, path, hash })
+      }
+    }
+
+    // 3. Apply the paths. Books whose file is gone from the folder are only marked absent (path = NULL): nothing is
+    //    deleted. (An empty folder, e.g. an unmounted drive, hides nothing.)
+    let removed = 0
+    this.db.transaction(() => {
+      const next = new Map<number, string | null>()
+      for (const row of rows) {
+        const path = owner.get(row.id) ?? (found.size > 0 ? null : row.path)
+        next.set(row.id, path)
+        if (row.path && path === null) removed++
+      }
+      const clear = this.db.prepare('UPDATE books SET path = NULL WHERE id = ?')
+      for (const row of rows) if (row.path !== next.get(row.id)) clear.run(row.id) // first free every path that changes...
+      const assign = this.db.prepare('UPDATE books SET path = ?, size = ?, mtime_ms = ?, hash = COALESCE(hash, ?) WHERE id = ?')
+      for (const row of rows) {
+        const path = next.get(row.id)
+        if (!path) continue
+        const file = found.get(path)
+        if (file) assign.run(path, file.size, file.mtimeMs, hashes.get(path) ?? null, row.id) // ...then hand them out
+      }
+    })()
+
+    // 4. Metadata and cover for new books and for books whose file was replaced.
+    let added = 0
+    let updated = 0
+    let unreadable = 0
+    done = 0
+    lastEmit = 0
+    emit(reindex.length, true)
+    await mapPool(reindex, PARSE_CONCURRENCY, async ({ row, path, hash }) => {
+      const meta = await readMeta(path)
+      if (meta.unreadable) unreadable++
+      await this.upsertBook(row?.id ?? null, path, found.get(path)!, hash, meta, row?.cover_path ?? null)
+      if (row) updated++
+      else added++
+      done++
+      emit(reindex.length)
+    })
+
+    onProgress({ phase: 'done', done: reindex.length, total: reindex.length })
+    return { total: found.size - duplicates.size, added, updated, removed, unreadable }
   }
 
-  private async upsertBook(path: string, file: FoundFile, meta: ParsedMeta, previousCover: string | null): Promise<void> {
-    const row = this.db
-      .prepare(
-        `INSERT INTO books(path, title, author, language, size, mtime_ms, added_at)
-         VALUES(@path, @title, @author, @language, @size, @mtime, @now)
-         ON CONFLICT(path) DO UPDATE SET
-           title = excluded.title, author = excluded.author, language = excluded.language,
-           size = excluded.size, mtime_ms = excluded.mtime_ms, locations = NULL
-         RETURNING id`
-      )
-      .get({
-        path,
-        title: meta.title,
-        author: meta.author,
-        language: meta.language,
-        size: file.size,
-        mtime: file.mtimeMs,
-        now: Date.now()
-      }) as { id: number }
-
-    await this.storeCover(row.id, meta.cover, previousCover)
+  private async upsertBook(
+    id: number | null,
+    path: string,
+    file: FoundFile,
+    hash: string,
+    meta: ParsedMeta,
+    previousCover: string | null
+  ): Promise<void> {
+    let bookId = id
+    if (bookId === null) {
+      bookId = (
+        this.db
+          .prepare(
+            `INSERT INTO books(path, hash, title, author, language, size, mtime_ms, added_at)
+             VALUES(@path, @hash, @title, @author, @language, @size, @mtime, @now) RETURNING id`
+          )
+          .get({ path, hash, title: meta.title, author: meta.author, language: meta.language, size: file.size, mtime: file.mtimeMs, now: Date.now() }) as { id: number }
+      ).id
+    } else {
+      // The file behind this book was replaced: new content, so the cached locations no longer apply.
+      this.db
+        .prepare(
+          `UPDATE books SET hash = @hash, title = @title, author = @author, language = @language,
+                  size = @size, mtime_ms = @mtime, locations = NULL WHERE id = @id`
+        )
+        .run({ id: bookId, hash, title: meta.title, author: meta.author, language: meta.language, size: file.size, mtime: file.mtimeMs })
+    }
+    await this.storeCover(bookId, meta.cover, previousCover)
   }
 
   private async storeCover(id: number, cover: ParsedMeta['cover'], previous: string | null): Promise<void> {
@@ -288,6 +366,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
         reject(error)
       }
     )
+  })
+}
+
+function hashFile(path: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('error', () => resolve(null)) // unreadable: the file is skipped
+    stream.on('end', () => resolve(hash.digest('hex')))
   })
 }
 

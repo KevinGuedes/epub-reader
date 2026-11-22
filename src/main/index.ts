@@ -1,10 +1,12 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, Menu, net, protocol, shell } from 'electron'
 import { openDatabase, type Db } from './db'
+import { CH } from '../shared/channels'
 import { registerIpc } from './ipc'
 import { isInside, Library } from './library'
+import { ExternalBooks, extractEpubArg } from './openwith'
 
 // Book covers are served to the renderer through cover://book/<id> (must be registered before app is ready).
 protocol.registerSchemesAsPrivileged([
@@ -18,6 +20,23 @@ app.setDesktopName('epub-reader.desktop')
 
 let mainWindow: BrowserWindow | null = null
 let db: Db | null = null
+let library: Library | null = null
+const externalBooks = new ExternalBooks()
+let pendingOpen: number | null = null // book the OS asked us to open, until the renderer picks it up
+
+/** "Open with": turns the command line of this (or a second) instance into a book id for the renderer. */
+function handleOpenRequest(argv: readonly string[], cwd: string): void {
+  const path = extractEpubArg(argv, cwd)
+  if (!path || !library) return
+  try {
+    if (!statSync(path).isFile()) return
+  } catch {
+    return // missing or unreadable file
+  }
+  // A file that is already in the library opens as that book (progress is kept); anything else is read-only.
+  pendingOpen = library.findIdByPath(path) ?? externalBooks.register(path)
+  mainWindow?.webContents.send(CH.openRequested)
+}
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -75,7 +94,8 @@ function createWindow(): BrowserWindow {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv, cwd) => {
+    handleOpenRequest(argv, cwd)
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
@@ -87,16 +107,25 @@ if (!app.requestSingleInstanceLock()) {
     mkdirSync(coversDir, { recursive: true })
 
     db = openDatabase(join(userData, 'library.db'))
-    const library = new Library(db, coversDir)
+    library = new Library(db, coversDir)
+    const lib = library
 
     protocol.handle('cover', (request) => {
       const id = Number(new URL(request.url).pathname.slice(1))
-      const file = Number.isSafeInteger(id) ? library.getCoverPath(id) : null
+      const file = Number.isSafeInteger(id) ? lib.getCoverPath(id) : null
       if (!file || !isInside(coversDir, resolve(file))) return new Response('Not found', { status: 404 })
       return net.fetch(pathToFileURL(file).toString())
     })
 
-    registerIpc(db, library)
+    registerIpc(db, lib, {
+      external: externalBooks,
+      takePending: () => {
+        const id = pendingOpen
+        pendingOpen = null
+        return id
+      }
+    })
+    handleOpenRequest(process.argv.slice(1), process.cwd())
 
     // No application menu: its default accelerators (Ctrl +/-/0 zoom, F11, Ctrl+F...) would shadow the reader's own.
     Menu.setApplicationMenu(null)

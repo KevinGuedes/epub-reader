@@ -18,6 +18,18 @@
   color-scheme: light;
 }
 
+/* --sb-alpha is registered so it can be transitioned: Chromium does not animate properties of scrollbar
+   pseudo-elements, but it does re-resolve them every frame while this variable animates (immersive-mode fade). */
+@property --sb-alpha {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.reader {
+  transition: --sb-alpha 0.4s ease;
+}
+
 /* Scrollbars follow the reading theme: the thumb is a tint of the text color, darker on hover. */
 ::-webkit-scrollbar {
   width: 14px;
@@ -33,13 +45,13 @@
   min-height: 40px;
   border: 3px solid transparent;
   border-radius: 8px;
-  background: var(--track);
+  background-color: color-mix(in srgb, var(--track) calc(var(--sb-alpha) * 100%), transparent);
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:active {
-  background: color-mix(in srgb, var(--fg) 45%, var(--bg));
+  background-color: color-mix(in srgb, color-mix(in srgb, var(--fg) 45%, var(--bg)) calc(var(--sb-alpha) * 100%), transparent);
   background-clip: padding-box;
 }
 
@@ -745,7 +757,6 @@ option::checkmark {
 
 /* Immersive mode: the scrollbar disappears together with the bars. Only its colors change (no layout shift), and it
    comes back while scrolling, when the bars do, or when the pointer reaches the right edge of the window. */
-.reader.sb-off ::-webkit-scrollbar-thumb,
-.reader.sb-off ::-webkit-scrollbar-thumb:hover {
-  background: transparent;
+.reader.sb-off {
+  --sb-alpha: 0;
 }
