@@ -20,6 +20,7 @@ const api: Api = {
   saveProgress: (id, cfi, percent) => ipcRenderer.invoke(CH.bookSaveProgress, id, cfi, percent),
   getLocations: (id) => ipcRenderer.invoke(CH.bookGetLocations, id),
   saveLocations: (id, json) => ipcRenderer.invoke(CH.bookSaveLocations, id, json),
+  lookupTranslation: (bookId, text) => ipcRenderer.invoke(CH.translateLookup, bookId, text),
   openTranslate: (bookId, text) => ipcRenderer.invoke(CH.translateOpen, bookId, text),
   takePendingOpen: () => ipcRenderer.invoke(CH.openTakePending),
   onOpenRequested: (callback) => {

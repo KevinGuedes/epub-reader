@@ -1,5 +1,8 @@
 // Types shared by the main process, the preload script and the renderer.
 
+import type { TranslateResult } from './translate'
+export type { TranslateResult, TranslationAlternatives } from './translate'
+
 export type ThemeId = 'sand' | 'light' | 'sepia' | 'cafe' | 'dark' | 'black' | 'custom'
 export type FontKey = 'publisher' | 'serif' | 'sans' | 'mono' | 'custom'
 export type TextAlign = 'left' | 'justify'
@@ -64,6 +67,8 @@ export interface Api {
   saveProgress(id: number, cfi: string, percent: number): Promise<void>
   getLocations(id: number): Promise<string | null>
   saveLocations(id: number, json: string): Promise<void>
+  /** Translates the selection into pt-BR inside the app (online). Never rejects: failures come back as { ok: false }. */
+  lookupTranslation(bookId: number, text: string): Promise<TranslateResult>
   /** Opens Google Translate (-> pt-BR) for the selected text in the system browser. Resolves false on failure. */
   openTranslate(bookId: number, text: string): Promise<boolean>
   /** Book the OS asked us to open ("Open with"); returned once. Negative ids are read-only books outside the library. */

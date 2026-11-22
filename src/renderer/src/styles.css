@@ -448,15 +448,6 @@ option::checkmark {
   filter: brightness(1.12);
 }
 
-.sel-note {
-  pointer-events: auto;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 12px;
-}
 
 .reader-title {
   flex: 1;
@@ -759,4 +750,61 @@ option::checkmark {
    comes back while scrolling, when the bars do, or when the pointer reaches the right edge of the window. */
 .reader.sb-off {
   --sb-alpha: 0;
+}
+
+/* In-reader translation card (replaces the "Traduzir" pill once the lookup is requested). */
+.sel-card {
+  pointer-events: auto;
+  width: max-content;
+  max-width: 340px;
+  min-width: 160px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.3);
+  text-align: left;
+}
+.sel-card-src {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel-card-tr {
+  margin: 4px 0 6px;
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sel-card-wait,
+.sel-card-err {
+  margin: 4px 0 6px;
+  font-size: 13px;
+}
+.sel-card-alt {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.sel-card-alt em {
+  color: var(--fg);
+  font-style: italic;
+}
+.sel-card-link {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.8;
+  cursor: pointer;
+}
+.sel-card-link:hover {
+  opacity: 1;
 }

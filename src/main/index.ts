@@ -7,6 +7,7 @@ import { CH } from '../shared/channels'
 import { registerIpc } from './ipc'
 import { isInside, Library } from './library'
 import { ExternalBooks, extractEpubArg } from './openwith'
+import { OnlineTranslator } from './translate-online'
 
 // Book covers are served to the renderer through cover://book/<id> (must be registered before app is ready).
 protocol.registerSchemesAsPrivileged([
@@ -124,7 +125,7 @@ if (!app.requestSingleInstanceLock()) {
         pendingOpen = null
         return id
       }
-    })
+    }, new OnlineTranslator((url, init) => net.fetch(url, init)))
     handleOpenRequest(process.argv.slice(1), process.cwd())
 
     // No application menu: its default accelerators (Ctrl +/-/0 zoom, F11, Ctrl+F...) would shadow the reader's own.

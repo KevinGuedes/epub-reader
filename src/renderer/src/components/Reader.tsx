@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ePub, { type Book, type Contents, type Location, type NavItem, type Rendition } from 'epubjs'
-import { normalizeSelection } from '../../../shared/translate'
+import { normalizeSelection, type TranslateResult } from '../../../shared/translate'
 import { useStore } from '../store'
 import { applyReaderStyle, injectReaderStyle, layoutKey, NAV_NEXT } from '../themes'
 import { useBookSearch } from '../useBookSearch'
@@ -19,10 +19,16 @@ interface SelectionPopover {
   x: number // px, relative to the reader stage
   y: number
   below: boolean // placed under the selection when there is no room above it
-  note?: string
+  lookup?: { state: 'loading' } | { state: 'done'; result: TranslateResult } // set once the user asked to translate
 }
 
-const POPOVER_HALF_WIDTH = 110
+const LOOKUP_ERRORS: Record<Extract<TranslateResult, { ok: false }>['reason'], string> = {
+  offline: 'Sem conexão com a internet.',
+  blocked: 'O Google recusou a consulta (limite de uso). Tente de novo em instantes.',
+  failed: 'Não foi possível traduzir agora.'
+}
+
+const POPOVER_HALF_WIDTH = 170 // the translation card is up to ~340px wide
 const POPOVER_LABEL_CHARS = 24
 
 const SAVE_DEBOUNCE_MS = 600
@@ -106,17 +112,27 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     setPopover(null)
   }, [setPopover])
 
+  // Translates inside the reader (online). The card replaces the "Traduzir" button; the selection stays in place.
   const translateSelection = useCallback(async () => {
     const current = popoverRef.current
-    if (!current) return
+    if (!current || current.lookup?.state === 'loading') return
     if (!navigator.onLine) {
-      setPopover({ ...current, note: 'Sem conexão com a internet' })
+      setPopover({ ...current, lookup: { state: 'done', result: { ok: false, reason: 'offline' } } })
       return
     }
-    const opened = await window.api.openTranslate(bookId, current.text)
-    if (opened) clearSelection()
-    else setPopover({ ...current, note: 'Não foi possível abrir o navegador' })
-  }, [bookId, clearSelection, setPopover])
+    setPopover({ ...current, lookup: { state: 'loading' } })
+    const result = await window.api.lookupTranslation(bookId, current.text)
+    const latest = popoverRef.current
+    if (!latest || latest.text !== current.text) return // the selection changed while we were waiting
+    setPopover({ ...latest, lookup: { state: 'done', result } })
+  }, [bookId, setPopover])
+
+  // Secondary action: the same text in Google Translate, in the system browser.
+  const openInGoogle = useCallback(async () => {
+    const current = popoverRef.current
+    if (!current) return
+    if (await window.api.openTranslate(bookId, current.text)) clearSelection()
+  }, [bookId, clearSelection])
 
   // Immersive mode: pointer near the top/bottom edge of the window (y in window coordinates) reveals the bars.
   const edgeMove = useCallback((x: number, y: number) => {
@@ -467,7 +483,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     }
 
     if ((event.key === 't' || event.key === 'T') && !event.ctrlKey && !event.metaKey && !event.altKey && popoverRef.current) {
-      void translateSelection()
+      if (popoverRef.current.lookup?.state === 'done') void openInGoogle() // second T: continue in the browser
+      else void translateSelection()
       event.preventDefault()
       return
     }
@@ -573,11 +590,33 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
             // Keep the text selected (and the keyboard focus where it is) while the button is clicked.
             onMouseDown={(e) => e.preventDefault()}
           >
-            <button className="sel-btn" onClick={() => void translateSelection()} title="Traduzir no Google (T)">
-              Traduzir “
-              {popover.text.length > POPOVER_LABEL_CHARS ? `${popover.text.slice(0, POPOVER_LABEL_CHARS)}…` : popover.text}” ↗
-            </button>
-            {popover.note && <span className="sel-note">{popover.note}</span>}
+            {!popover.lookup ? (
+              <button className="sel-btn" onClick={() => void translateSelection()} title="Traduzir para português (T)">
+                Traduzir “
+                {popover.text.length > POPOVER_LABEL_CHARS ? `${popover.text.slice(0, POPOVER_LABEL_CHARS)}…` : popover.text}”
+              </button>
+            ) : (
+              <div className="sel-card" role="status" aria-live="polite">
+                <div className="sel-card-src">{popover.text}</div>
+                {popover.lookup.state === 'loading' && <div className="sel-card-wait">Traduzindo…</div>}
+                {popover.lookup.state === 'done' && popover.lookup.result.ok && (
+                  <>
+                    <div className="sel-card-tr">{popover.lookup.result.translation}</div>
+                    {popover.lookup.result.alternatives.map((group, i) => (
+                      <div className="sel-card-alt" key={i}>
+                        {group.pos && <em>{group.pos}</em>} {group.terms.join(', ')}
+                      </div>
+                    ))}
+                  </>
+                )}
+                {popover.lookup.state === 'done' && !popover.lookup.result.ok && (
+                  <div className="sel-card-err">{LOOKUP_ERRORS[popover.lookup.result.reason]}</div>
+                )}
+                <button className="sel-card-link" onClick={() => void openInGoogle()} title="Abrir no Google Tradutor (T)">
+                  Abrir no Google ↗
+                </button>
+              </div>
+            )}
           </div>
         )}
         {status === 'loading' && <div className="overlay muted">Abrindo livro…</div>}

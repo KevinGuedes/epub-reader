@@ -3,10 +3,11 @@ import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from '
 import { CH } from '../shared/channels'
 import { sanitizeSettings } from '../shared/settings'
 import { buildTranslateUrl, normalizeSelection } from '../shared/translate'
-import type { ReaderSettings, ScanOutcome } from '../shared/types'
+import type { ReaderSettings, ScanOutcome, TranslateResult } from '../shared/types'
 import { getSetting, setSetting, type Db } from './db'
 import type { Library } from './library'
 import type { ExternalBooks } from './openwith'
+import { OnlineTranslator } from './translate-online'
 
 const LIBRARY_DIR_KEY = 'libraryDir'
 const READER_SETTINGS_KEY = 'reader'
@@ -41,7 +42,7 @@ export interface OpenWith {
   takePending(): number | null
 }
 
-export function registerIpc(db: Db, library: Library, openWith: OpenWith): void {
+export function registerIpc(db: Db, library: Library, openWith: OpenWith, translator: OnlineTranslator): void {
   const getDir = (): string | null => getSetting<string>(db, LIBRARY_DIR_KEY) ?? null
 
   let scanning: Promise<ScanOutcome> | null = null
@@ -116,6 +117,13 @@ export function registerIpc(db: Db, library: Library, openWith: OpenWith): void 
   handle(CH.bookSaveLocations, (_event, id, json) => {
     const ref = toBookRef(id)
     if (ref > 0) library.saveLocations(ref, toString(json, 8 * 1024 * 1024))
+  })
+
+  handle(CH.translateLookup, async (_event, id, text): Promise<TranslateResult> => {
+    const clean = normalizeSelection(toString(text, 1000))
+    if (!clean) return { ok: false, reason: 'failed' }
+    const ref = toBookRef(id)
+    return translator.lookup(clean, ref > 0 ? library.getLanguage(ref) : null)
   })
 
   // The URL is built here from validated text; the renderer can never ask us to open an arbitrary URL.
