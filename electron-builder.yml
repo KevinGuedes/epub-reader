@@ -13,7 +13,6 @@ asarUnpack:
   - '**/*.node'
 linux:
   target:
-    - AppImage
     - deb
   category: Office
   executableName: epub-reader
