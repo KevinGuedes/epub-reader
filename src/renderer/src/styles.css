@@ -423,7 +423,6 @@ option::checkmark {
   pointer-events: none;
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.32);
   clip-path: inset(-100vmax 0);
-  transition: top 60ms linear;
 }
 .reader-stage { overflow: hidden; }
 

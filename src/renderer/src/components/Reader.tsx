@@ -6,6 +6,7 @@ import { applyReaderStyle, injectReaderStyle, layoutKey, NAV_NEXT } from '../the
 import { useBookSearch } from '../useBookSearch'
 import { useDismissOutside } from '../useDismissOutside'
 import { LIMITS, DEFAULT_SETTINGS } from '../../../shared/settings'
+import { collectLines } from '../textLines'
 import { SearchBar } from './SearchBar'
 import { TopbarActions } from './TopbarActions'
 import { useFullscreen } from '../useFullscreen'
@@ -79,9 +80,28 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const lastRevealRef = useRef(0)
   const scrollIdleRef = useRef<number | undefined>(undefined)
   settingsRef.current = settings
-  const [rulerY, setRulerY] = useState<number | null>(null)
-  const rulerYRef = useRef<number | null>(null)
-  rulerYRef.current = rulerY
+  // The ruler position lives in a ref and is written straight to the element: going through React state (render +
+  // commit per mousemove) and a CSS transition made it visibly trail the pointer.
+  const [rulerShown, setRulerShown] = useState(false)
+  // Box in stage coordinates. The pointer centers a nominal one-line box; the keyboard snaps to real text lines.
+  const rulerBoxRef = useRef<{ top: number; height: number } | null>(null)
+  const rulerElRef = useRef<HTMLDivElement | null>(null)
+  const placeRuler = (el: HTMLDivElement | null): void => {
+    const box = rulerBoxRef.current
+    if (!el || !box) return
+    el.style.top = `${box.top}px`
+    el.style.height = `${box.height}px`
+  }
+  const setRulerBox = (top: number, height: number): void => {
+    rulerBoxRef.current = { top, height }
+    if (rulerElRef.current) placeRuler(rulerElRef.current)
+    else setRulerShown(true)
+  }
+  const setRulerY = (centerY: number): void => {
+    const cfg = settingsRef.current
+    const height = cfg.fontSize * cfg.lineHeight
+    setRulerBox(centerY - height / 2, height)
+  }
 
   const [title, setTitle] = useState('')
   const [toc, setToc] = useState<NavItem[]>([])
@@ -442,6 +462,53 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     useStore.getState().patchSettings({ fontSize: Math.min(max, Math.max(min, next)) })
   }
 
+  const moveRulerByLine = (scroller: HTMLElement, dir: 1 | -1): void => {
+    const contents = (renditionRef.current?.getContents() as unknown as Contents[] | undefined)?.[0]
+    const frame = contents?.document.defaultView?.frameElement as HTMLIFrameElement | null | undefined
+    const stage = stageRef.current
+    if (!contents || !frame || !stage) return
+    const h = scroller.clientHeight
+    const bandTop = h * 0.25
+    const bandBottom = h * 0.75
+    const cur = rulerBoxRef.current
+    const first = cur === null
+    let centerY = cur ? cur.top + cur.height / 2 : h * 0.3
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const offset = frame.getBoundingClientRect().top - stage.getBoundingClientRect().top
+      const lines = collectLines(contents.document, -offset - 80, -offset + h + 80).map((l) => ({
+        top: l.top + offset,
+        bottom: l.bottom + offset
+      }))
+      const mid = (l: { top: number; bottom: number }): number => (l.top + l.bottom) / 2
+      let target: { top: number; bottom: number } | undefined
+      if (first) target = lines.reduce<typeof target>((best, l) => (!best || Math.abs(mid(l) - centerY) < Math.abs(mid(best) - centerY) ? l : best), undefined)
+      else if (dir > 0) target = lines.find((l) => mid(l) > centerY + 2)
+      else target = [...lines].reverse().find((l) => mid(l) < centerY - 2)
+
+      if (!target) {
+        const before = scroller.scrollTop
+        scroller.scrollBy({ top: dir * h * 0.5 })
+        const moved = scroller.scrollTop - before
+        if (moved === 0) return // start/end of the chapter
+        centerY -= moved
+        continue
+      }
+      let { top, bottom } = target
+      const m = (top + bottom) / 2
+      const clamped = Math.min(bandBottom, Math.max(bandTop, m))
+      if (clamped !== m && !first) {
+        const before = scroller.scrollTop
+        scroller.scrollBy({ top: m - clamped })
+        const moved = scroller.scrollTop - before
+        top -= moved
+        bottom -= moved
+      }
+      setRulerBox(top, bottom - top)
+      return
+    }
+  }
+
   keyHandlerRef.current = (event: KeyboardEvent): void => {
     // Keys typed into a form control (or used to operate an open dropdown, whose focus sits on an <option>)
     // belong to that control: Esc must close the dropdown only, not the whole drawer.
@@ -514,16 +581,9 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
           scroller.scrollBy({ top: 60 * dir })
           break
         }
-        // Reading ruler driven by the keyboard: one line per key press; at the 25%/75% band edges the text
-        // scrolls instead, so the ruler stays in a comfortable reading zone.
-        const line = cfg.fontSize * cfg.lineHeight
-        const h = scroller.clientHeight
-        const current = rulerYRef.current ?? h * 0.3
-        const next = current + dir * line
-        if (next > h * 0.75 || next < h * 0.25) {
-          scroller.scrollBy({ top: dir * line })
-          if (rulerYRef.current === null) setRulerY(current)
-        } else setRulerY(next)
+        // Reading ruler driven by the keyboard: snaps to the real text lines (measured in the DOM, so headings,
+        // paragraph gaps and font changes are followed). Near the 25%/75% band edges the text scrolls instead.
+        moveRulerByLine(scroller, dir)
         break
       }
       case 'PageDown':
@@ -602,11 +662,14 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
 
       <div ref={stageRef} className="reader-stage">
         <div ref={hostRef} className="reader-host" />
-        {settings.readingRuler && rulerY !== null && (
+        {settings.readingRuler && rulerShown && (
           <div
+            ref={(el) => {
+              rulerElRef.current = el
+              placeRuler(el)
+            }}
             className="reading-ruler"
             aria-hidden="true"
-            style={{ top: rulerY - (settings.fontSize * settings.lineHeight) / 2, height: settings.fontSize * settings.lineHeight }}
           />
         )}
         {popover && (
