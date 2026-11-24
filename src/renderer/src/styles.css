@@ -414,6 +414,25 @@ option::checkmark {
   overflow-anchor: none;
 }
 
+/* Reading ruler: the line under the pointer stays clear while the rest of the page is dimmed. */
+.reading-ruler {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.32);
+  clip-path: inset(-100vmax 0);
+  transition: top 60ms linear;
+}
+.reader-stage { overflow: hidden; }
+
+.warn {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #d98a00;
+}
+
 .sel-popover {
   position: absolute;
   z-index: 5;

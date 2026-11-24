@@ -50,6 +50,7 @@ body {
   ${family ? `font-family: ${family} !important;` : ''}
   font-size: ${s.fontSize}px !important;
   line-height: ${s.lineHeight} !important;
+  letter-spacing: ${s.letterSpacing}em !important;
   text-align: ${s.textAlign} !important;
   max-width: ${maxWidth} !important;
   margin: 0 auto !important;
@@ -208,5 +209,5 @@ function isDark(hex: string): boolean {
 
 /** Settings that change text layout (and therefore require re-anchoring the reading position). */
 export function layoutKey(s: ReaderSettings): string {
-  return [s.fontKey, s.customFont, s.fontSize, s.lineHeight, s.paragraphSpacing, s.textWidth, s.textAlign].join('|')
+  return [s.fontKey, s.customFont, s.fontSize, s.lineHeight, s.letterSpacing, s.paragraphSpacing, s.textWidth, s.textAlign].join('|')
 }

@@ -1,3 +1,4 @@
+import { contrastRatio, MIN_READABLE_CONTRAST } from '../../../shared/contrast'
 import { LIMITS, THEME_PRESETS } from '../../../shared/settings'
 import type { FontKey, ThemeId } from '../../../shared/types'
 import { useStore } from '../store'
@@ -48,6 +49,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
   const applyPreset = useStore((s) => s.applyPreset)
   const reset = useStore((s) => s.resetSettings)
 
+  const contrast = contrastRatio(settings.background, settings.color)
   const presetIds = Object.keys(THEME_PRESETS) as Array<Exclude<ThemeId, 'custom'>>
 
   return (
@@ -104,6 +106,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
               />
             </label>
           </div>
+          {settings.themeId === 'custom' && contrast < MIN_READABLE_CONTRAST && (
+            <p className="warn" role="status">
+              Contraste baixo ({contrast.toFixed(1)}:1). Para textos longos, o recomendado é pelo menos{' '}
+              {MIN_READABLE_CONTRAST}:1.
+            </p>
+          )}
         </section>
 
         <section>
@@ -145,6 +153,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
             onChange={(lineHeight) => patch({ lineHeight })}
           />
           <Slider
+            label="Espaçamento entre letras"
+            value={settings.letterSpacing}
+            display={`${settings.letterSpacing.toFixed(2)} em`}
+            {...LIMITS.letterSpacing}
+            onChange={(letterSpacing) => patch({ letterSpacing })}
+          />
+          <Slider
             label="Espaço entre parágrafos"
             value={settings.paragraphSpacing}
             display={`${settings.paragraphSpacing.toFixed(1)} em`}
@@ -166,6 +181,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
           <label className="check">
             <input
               type="checkbox"
+              checked={settings.readingRuler}
+              onChange={(e) => patch({ readingRuler: e.target.checked })}
+            />
+            Régua de leitura (mouse ou setas ↑↓)
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
               checked={settings.textWidth === 0}
               onChange={(e) => patch({ textWidth: e.target.checked ? 0 : 760 })}
             />
@@ -179,6 +202,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }): React.JSX.E
             disabled={settings.textWidth === 0}
             onChange={(textWidth) => patch({ textWidth })}
           />
+          <button className="link-btn" onClick={() => patch({ textWidth: LIMITS.textWidth.min + 60 })}>
+            Coluna estreita
+          </button>
           <div className="segmented" role="group" aria-label="Alinhamento">
             <button className={settings.textAlign === 'left' ? 'active' : ''} onClick={() => patch({ textAlign: 'left' })}>
               Esquerda

@@ -23,8 +23,10 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   fontSize: 19,
   lineHeight: 1.6,
   paragraphSpacing: 0.6,
+  letterSpacing: 0,
   textWidth: 760,
   textAlign: 'left',
+  readingRuler: false,
   autoHideBars: true
 }
 
@@ -32,6 +34,7 @@ export const LIMITS = {
   fontSize: { min: 12, max: 40, step: 1 },
   lineHeight: { min: 1.0, max: 2.6, step: 0.05 },
   paragraphSpacing: { min: 0, max: 2, step: 0.1 },
+  letterSpacing: { min: 0, max: 0.2, step: 0.01 },
   textWidth: { min: 420, max: 1400, step: 20 }
 } as const
 
@@ -78,8 +81,10 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
     fontSize: Math.round(pickNumber(r.fontSize, LIMITS.fontSize.min, LIMITS.fontSize.max, d.fontSize)),
     lineHeight: pickNumber(r.lineHeight, LIMITS.lineHeight.min, LIMITS.lineHeight.max, d.lineHeight),
     paragraphSpacing: pickNumber(r.paragraphSpacing, LIMITS.paragraphSpacing.min, LIMITS.paragraphSpacing.max, d.paragraphSpacing),
+    letterSpacing: pickNumber(r.letterSpacing, LIMITS.letterSpacing.min, LIMITS.letterSpacing.max, d.letterSpacing),
     textWidth,
     textAlign: pickEnum(r.textAlign, ALIGNS, d.textAlign),
+    readingRuler: typeof r.readingRuler === 'boolean' ? r.readingRuler : d.readingRuler,
     autoHideBars: typeof r.autoHideBars === 'boolean' ? r.autoHideBars : d.autoHideBars
   }
 }

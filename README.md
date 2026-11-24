@@ -35,6 +35,12 @@ Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive 
 
 Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive no texto do livro. Dropdowns e barras de rolagem seguem as cores do tema.
 
+9. **Apoios de leitura** (em `Aa`), escolhidos pelo que há de evidência, sem prometer ganhos:
+   - **Régua de leitura**: a linha sob o mouse fica clara e o resto escurece. Ligada em `Aa` → Página. Pelo teclado, `↑`/`↓` movem a régua uma linha por vez (o texto rola ao chegar perto das bordas); com `Shift` ou `Alt` as setas rolam a página como antes. Estudo online com 177 leitores (CHI '23) viu leitura mais rápida com réguas.
+   - **Espaçamento entre letras** (0 a 0,20 em) e **Coluna estreita** (480 px): opções para quem lê com dificuldade; estudos pequenos, efeito varia entre pessoas.
+   - **Aviso de contraste** nas cores personalizadas (abaixo de 4,5:1, critério WCAG AA).
+   - Deliberadamente **não** implementados: Bionic Reading, leitura dinâmica/RSVP e sobreposições coloridas, por falta de evidência.
+
 Topo (biblioteca e leitura, mesma posição): `Imersivo` liga/desliga o modo imersivo, `Aa` abre a personalização e o último botão alterna tela cheia.
 
 Atalhos: `↑ ↓ PgUp PgDn Espaço Home End` rolam; `→` / `←` mudam de capítulo (também `PgDn`/`Espaço` no fim do capítulo e `PgUp`/`Shift+Espaço` no começo); `Ctrl+F` busca; `Ctrl +/−/0` fonte; `F11` tela cheia; `T` traduz a seleção; `Esc` fecha seleção, busca ou painel e, por fim, volta à biblioteca. Em desenvolvimento, `F12` abre as ferramentas do desenvolvedor (o app não tem barra de menus).

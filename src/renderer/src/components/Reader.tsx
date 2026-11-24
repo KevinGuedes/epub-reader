@@ -79,6 +79,9 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   const lastRevealRef = useRef(0)
   const scrollIdleRef = useRef<number | undefined>(undefined)
   settingsRef.current = settings
+  const [rulerY, setRulerY] = useState<number | null>(null)
+  const rulerYRef = useRef<number | null>(null)
+  rulerYRef.current = rulerY
 
   const [title, setTitle] = useState('')
   const [toc, setToc] = useState<NavItem[]>([])
@@ -228,6 +231,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
             const frame = contents.document.defaultView?.frameElement as HTMLIFrameElement | null
             const box = frame?.getBoundingClientRect()
             edgeMove(event.clientX + (box?.left ?? 0), event.clientY + (box?.top ?? 0))
+            // Reading ruler: Y relative to the stage (the iframe fills the host, which fills the stage).
+            setRulerY(event.clientY + (box ? box.top - (stageRef.current?.getBoundingClientRect().top ?? 0) : 0))
           })
           // Selection collapsed (click elsewhere, new chapter, Esc...) -> the popover no longer applies.
           contents.document.addEventListener('selectionchange', () => {
@@ -502,11 +507,25 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
         goChapterRef.current(-1)
         break
       case 'ArrowDown':
-        scroller.scrollBy({ top: 60 })
+      case 'ArrowUp': {
+        const dir = event.key === 'ArrowDown' ? 1 : -1
+        const cfg = settingsRef.current
+        if (!cfg.readingRuler || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+          scroller.scrollBy({ top: 60 * dir })
+          break
+        }
+        // Reading ruler driven by the keyboard: one line per key press; at the 25%/75% band edges the text
+        // scrolls instead, so the ruler stays in a comfortable reading zone.
+        const line = cfg.fontSize * cfg.lineHeight
+        const h = scroller.clientHeight
+        const current = rulerYRef.current ?? h * 0.3
+        const next = current + dir * line
+        if (next > h * 0.75 || next < h * 0.25) {
+          scroller.scrollBy({ top: dir * line })
+          if (rulerYRef.current === null) setRulerY(current)
+        } else setRulerY(next)
         break
-      case 'ArrowUp':
-        scroller.scrollBy({ top: -60 })
-        break
+      }
       case 'PageDown':
         if (atBottom) goChapterRef.current(1)
         else scroller.scrollBy({ top: page })
@@ -583,6 +602,13 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
 
       <div ref={stageRef} className="reader-stage">
         <div ref={hostRef} className="reader-host" />
+        {settings.readingRuler && rulerY !== null && (
+          <div
+            className="reading-ruler"
+            aria-hidden="true"
+            style={{ top: rulerY - (settings.fontSize * settings.lineHeight) / 2, height: settings.fontSize * settings.lineHeight }}
+          />
+        )}
         {popover && (
           <div
             className={`sel-popover ${popover.below ? 'below' : ''}`}
