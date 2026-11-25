@@ -29,6 +29,7 @@ const LOOKUP_ERRORS: Record<Extract<TranslateResult, { ok: false }>['reason'], s
   failed: 'Não foi possível traduzir agora.'
 }
 
+const LOADING_DELAY_MS = 300 // show "Traduzindo…" only when the answer takes longer than this
 const POPOVER_HALF_WIDTH = 170 // the translation card is up to ~340px wide
 const POPOVER_LABEL_CHARS = 24
 
@@ -181,6 +182,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     setPopoverState(next)
   }, [])
 
+  const lookupPendingRef = useRef(false)
+
   const clearSelection = useCallback(() => {
     selectionContentsRef.current?.document.getSelection()?.removeAllRanges()
     setPopover(null)
@@ -189,13 +192,25 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
   // Translates inside the reader (online). The card replaces the "Traduzir" button; the selection stays in place.
   const translateSelection = useCallback(async () => {
     const current = popoverRef.current
-    if (!current || current.lookup?.state === 'loading') return
+    if (!current || current.lookup?.state === 'loading' || lookupPendingRef.current) return
     if (!navigator.onLine) {
       setPopover({ ...current, lookup: { state: 'done', result: { ok: false, reason: 'offline' } } })
       return
     }
-    setPopover({ ...current, lookup: { state: 'loading' } })
-    const result = await window.api.lookupTranslation(bookId, current.text)
+    // Most answers arrive within a few dozen ms. Showing the "Traduzindo…" card for those only makes the popover
+    // jump twice (button -> small card -> full card), so the wait state appears only if the answer is really slow.
+    lookupPendingRef.current = true
+    const waitTimer = window.setTimeout(() => {
+      const now = popoverRef.current
+      if (now && now.text === current.text && !now.lookup) setPopover({ ...now, lookup: { state: 'loading' } })
+    }, LOADING_DELAY_MS)
+    let result: TranslateResult
+    try {
+      result = await window.api.lookupTranslation(bookId, current.text)
+    } finally {
+      window.clearTimeout(waitTimer)
+      lookupPendingRef.current = false
+    }
     const latest = popoverRef.current
     if (!latest || latest.text !== current.text) return // the selection changed while we were waiting
     setPopover({ ...latest, lookup: { state: 'done', result } })
