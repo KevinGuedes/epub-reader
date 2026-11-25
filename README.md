@@ -36,7 +36,7 @@ Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive 
 Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive no texto do livro. Dropdowns e barras de rolagem seguem as cores do tema.
 
 9. **Apoios de leitura** (em `Aa`), escolhidos pelo que há de evidência, sem prometer ganhos:
-   - **Régua de leitura**: a linha sob o mouse fica clara e o resto escurece. Ligada em `Aa` → Página. Pelo teclado, `↑`/`↓` movem a régua de linha em linha, medindo as linhas reais do texto (cabeçalhos, espaço entre parágrafos e troca de fonte são acompanhados; o texto rola ao chegar perto das bordas; imagens e os botões de capítulo são pulados); com `Shift` ou `Alt` as setas rolam a página como antes. Estudo online com 177 leitores (CHI '23) viu leitura mais rápida com réguas.
+   - **Régua de leitura**: a linha sob o mouse fica clara (com a altura real da linha, igual ao teclado) e o resto escurece. Ligada em `Aa` → Página. Pelo teclado, `↑`/`↓` movem a régua de linha em linha, medindo as linhas reais do texto (cabeçalhos, espaço entre parágrafos e troca de fonte são acompanhados; o texto rola ao chegar perto das bordas; imagens e os botões de capítulo são pulados); com `Shift` ou `Alt` as setas rolam a página como antes. Estudo online com 177 leitores (CHI '23) viu leitura mais rápida com réguas.
    - **Espaçamento entre letras** (0 a 0,20 em) e **Coluna estreita** (480 px): opções para quem lê com dificuldade; estudos pequenos, efeito varia entre pessoas.
    - **Aviso de contraste** nas cores personalizadas (abaixo de 4,5:1, critério WCAG AA).
    - Deliberadamente **não** implementados: Bionic Reading, leitura dinâmica/RSVP e sobreposições coloridas, por falta de evidência.

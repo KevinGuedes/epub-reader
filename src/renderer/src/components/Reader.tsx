@@ -6,7 +6,7 @@ import { applyReaderStyle, injectReaderStyle, layoutKey, NAV_NEXT } from '../the
 import { useBookSearch } from '../useBookSearch'
 import { useDismissOutside } from '../useDismissOutside'
 import { LIMITS, DEFAULT_SETTINGS } from '../../../shared/settings'
-import { collectLines } from '../textLines'
+import { collectLines, type LineBox } from '../textLines'
 import { SearchBar } from './SearchBar'
 import { TopbarActions } from './TopbarActions'
 import { useFullscreen } from '../useFullscreen'
@@ -97,10 +97,61 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     if (rulerElRef.current) placeRuler(rulerElRef.current)
     else setRulerShown(true)
   }
-  const setRulerY = (centerY: number): void => {
-    const cfg = settingsRef.current
-    const height = cfg.fontSize * cfg.lineHeight
-    setRulerBox(centerY - height / 2, height)
+  // Who drives the ruler: the last input used. Only refs are touched below, because the content hook that calls
+  // these is registered once and keeps the closures of the first render.
+  const rulerOwnerRef = useRef<'mouse' | 'key'>('mouse')
+  const pointerYRef = useRef<number | null>(null) // stage coordinates
+  const appliedPointerYRef = useRef<number | null>(null)
+  const rulerFrameRef = useRef(0)
+  const lineCacheRef = useRef<{ doc: Document; sig: string; lo: number; hi: number; lines: LineBox[] } | null>(null)
+
+  /** Text lines near the viewport in stage coordinates; measured lines are cached until the layout changes. */
+  const stageLines = (contents: Contents, frame: HTMLIFrameElement, stage: HTMLElement, h: number) => {
+    const doc = contents.document
+    const offset = frame.getBoundingClientRect().top - stage.getBoundingClientRect().top
+    const lo = -offset - 80
+    const hi = -offset + h + 80
+    const sig = `${doc.documentElement.scrollHeight}|${frame.clientWidth}|${JSON.stringify(settingsRef.current)}`
+    let cache = lineCacheRef.current
+    if (!cache || cache.doc !== doc || cache.sig !== sig || lo < cache.lo || hi > cache.hi) {
+      // Measure one extra screen on each side so ordinary scrolling does not trigger a new measurement.
+      cache = { doc, sig, lo: lo - h, hi: hi + h, lines: collectLines(doc, lo - h, hi + h) }
+      lineCacheRef.current = cache
+    }
+    return cache.lines.filter((l) => l.bottom >= lo && l.top <= hi).map((l) => ({ top: l.top + offset, bottom: l.bottom + offset }))
+  }
+
+  /** Highlight the line nearest to the pointer, with that line's own height (same look as keyboard navigation). */
+  const snapRulerToPointer = (): void => {
+    const y = pointerYRef.current
+    const contents = (renditionRef.current?.getContents() as unknown as Contents[] | undefined)?.[0]
+    const frame = contents?.document.defaultView?.frameElement as HTMLIFrameElement | null | undefined
+    const stage = stageRef.current
+    if (y === null || !contents || !frame || !stage) return
+    appliedPointerYRef.current = y
+    const lines = stageLines(contents, frame, stage, stage.clientHeight)
+    let best: { top: number; bottom: number } | undefined
+    let bestDist = Infinity
+    for (const l of lines) {
+      const d = y < l.top ? l.top - y : y > l.bottom ? y - l.bottom : 0
+      if (d < bestDist) {
+        best = l
+        bestDist = d
+      }
+    }
+    if (best) setRulerBox(best.top, best.bottom - best.top)
+    else {
+      const cfg = settingsRef.current
+      const height = cfg.fontSize * cfg.lineHeight
+      setRulerBox(y - height / 2, height)
+    }
+  }
+  const scheduleRulerSnap = (): void => {
+    if (rulerFrameRef.current) return
+    rulerFrameRef.current = requestAnimationFrame(() => {
+      rulerFrameRef.current = 0
+      snapRulerToPointer()
+    })
   }
 
   const [title, setTitle] = useState('')
@@ -252,7 +303,12 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
             const box = frame?.getBoundingClientRect()
             edgeMove(event.clientX + (box?.left ?? 0), event.clientY + (box?.top ?? 0))
             // Reading ruler: Y relative to the stage (the iframe fills the host, which fills the stage).
-            setRulerY(event.clientY + (box ? box.top - (stageRef.current?.getBoundingClientRect().top ?? 0) : 0))
+            const y = event.clientY + (box ? box.top - (stageRef.current?.getBoundingClientRect().top ?? 0) : 0)
+            pointerYRef.current = y
+            // After keyboard use, a few pixels of hand tremor must not take the ruler away from the arrow keys.
+            if (rulerOwnerRef.current === 'key' && Math.abs(y - (appliedPointerYRef.current ?? -1e9)) < 6) return
+            rulerOwnerRef.current = 'mouse'
+            scheduleRulerSnap()
           })
           // Selection collapsed (click elsewhere, new chapter, Esc...) -> the popover no longer applies.
           contents.document.addEventListener('selectionchange', () => {
@@ -293,6 +349,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
           'scroll',
           () => {
             if (popoverRef.current) setPopover(null)
+            // The text moved under a still pointer (wheel, scrollbar): re-pick the line under it.
+            if (rulerOwnerRef.current === 'mouse' && pointerYRef.current !== null) scheduleRulerSnap()
             // Immersive mode: the scrollbar shows while scrolling (like an overlay scrollbar) and fades after a pause.
             setScrolling(true)
             window.clearTimeout(scrollIdleRef.current)
@@ -467,6 +525,8 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     const frame = contents?.document.defaultView?.frameElement as HTMLIFrameElement | null | undefined
     const stage = stageRef.current
     if (!contents || !frame || !stage) return
+    rulerOwnerRef.current = 'key'
+    appliedPointerYRef.current = pointerYRef.current // the pointer must really move to take over again
     const h = scroller.clientHeight
     const bandTop = h * 0.25
     const bandBottom = h * 0.75
@@ -475,11 +535,7 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
     let centerY = cur ? cur.top + cur.height / 2 : h * 0.3
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      const offset = frame.getBoundingClientRect().top - stage.getBoundingClientRect().top
-      const lines = collectLines(contents.document, -offset - 80, -offset + h + 80).map((l) => ({
-        top: l.top + offset,
-        bottom: l.bottom + offset
-      }))
+      const lines = stageLines(contents, frame, stage, h)
       const mid = (l: { top: number; bottom: number }): number => (l.top + l.bottom) / 2
       let target: { top: number; bottom: number } | undefined
       if (first) target = lines.reduce<typeof target>((best, l) => (!best || Math.abs(mid(l) - centerY) < Math.abs(mid(best) - centerY) ? l : best), undefined)
@@ -508,6 +564,16 @@ export function Reader({ bookId }: { bookId: number }): React.JSX.Element {
       return
     }
   }
+
+  // Font/spacing/width changes re-flow the text: once it settled, put the ruler back on the line under the pointer.
+  const reflowKey = `${settings.fontSize}|${settings.lineHeight}|${settings.letterSpacing}|${settings.paragraphSpacing}|${settings.textWidth}|${settings.fontKey}|${settings.customFont}|${settings.textAlign}`
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (rulerOwnerRef.current === 'mouse' && pointerYRef.current !== null) snapRulerToPointer()
+    }, 350)
+    return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reflowKey])
 
   keyHandlerRef.current = (event: KeyboardEvent): void => {
     // Keys typed into a form control (or used to operate an open dropdown, whose focus sits on an <option>)
