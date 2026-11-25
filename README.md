@@ -41,6 +41,8 @@ Os painéis (índice e personalização) fecham ao clicar fora deles, inclusive 
    - **Aviso de contraste** nas cores personalizadas (abaixo de 4,5:1, critério WCAG AA).
    - Deliberadamente **não** implementados: Bionic Reading, leitura dinâmica/RSVP e sobreposições coloridas, por falta de evidência.
 
+10. **Janela**: tamanho, posição e estado maximizado são lembrados entre sessões (`window-state.json` na pasta de dados do app). Se a posição guardada ficar fora de todas as telas (monitor desconectado), o app abre com o tamanho guardado, centralizado. Tela cheia não é restaurada de propósito.
+
 Topo (biblioteca e leitura, mesma posição): `Imersivo` liga/desliga o modo imersivo, `Aa` abre a personalização e o último botão alterna tela cheia.
 
 Atalhos: `↑ ↓ PgUp PgDn Espaço Home End` rolam; `→` / `←` mudam de capítulo (também `PgDn`/`Espaço` no fim do capítulo e `PgUp`/`Shift+Espaço` no começo); `Ctrl+F` busca; `Ctrl +/−/0` fonte; `F11` tela cheia; `T` traduz a seleção; `Esc` fecha seleção, busca ou painel e, por fim, volta à biblioteca. Em desenvolvimento, `F12` abre as ferramentas do desenvolvedor (o app não tem barra de menus).

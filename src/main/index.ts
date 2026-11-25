@@ -1,13 +1,14 @@
 import { mkdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, Menu, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, Menu, net, protocol, screen, shell } from 'electron'
 import { openDatabase, type Db } from './db'
 import { CH } from '../shared/channels'
 import { registerIpc } from './ipc'
 import { isInside, Library } from './library'
 import { ExternalBooks, extractEpubArg } from './openwith'
 import { OnlineTranslator } from './translate-online'
+import { loadWindowState, MIN_SIZE, resolveBounds, saveWindowState } from './windowstate'
 
 // Book covers are served to the renderer through cover://book/<id> (must be registered before app is ready).
 protocol.registerSchemesAsPrivileged([
@@ -40,11 +41,14 @@ function handleOpenRequest(argv: readonly string[], cwd: string): void {
 }
 
 function createWindow(): BrowserWindow {
+  const stateFile = join(app.getPath('userData'), 'window-state.json')
+  const saved = loadWindowState(stateFile)
+  const primary = screen.getPrimaryDisplay().workArea
+  const others = screen.getAllDisplays().map((d) => d.workArea).filter((a) => a !== primary)
   const window = new BrowserWindow({
-    width: 1100,
-    height: 820,
-    minWidth: 640,
-    minHeight: 480,
+    ...resolveBounds(saved, [primary, ...others]),
+    minWidth: MIN_SIZE.width,
+    minHeight: MIN_SIZE.height,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#d9c8b4',
@@ -60,7 +64,29 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  if (saved?.maximized) window.maximize()
   window.once('ready-to-show', () => window.show())
+
+  // Remember size/position/maximized for the next launch. Normal bounds are used so that un-maximizing after a
+  // restart goes back to the previous window size. (Fullscreen is deliberately not restored: the reader's own
+  // fullscreen button/state lives in the page, so starting fullscreen would leave it out of sync.)
+  let saveTimer: NodeJS.Timeout | undefined
+  const persist = (): void => {
+    if (window.isDestroyed() || window.isFullScreen() || window.isMinimized()) return
+    saveWindowState(stateFile, { bounds: window.getNormalBounds(), maximized: window.isMaximized() })
+  }
+  const persistSoon = (): void => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(persist, 400)
+  }
+  window.on('resize', persistSoon)
+  window.on('move', persistSoon)
+  window.on('maximize', persistSoon)
+  window.on('unmaximize', persistSoon)
+  window.on('close', () => {
+    clearTimeout(saveTimer)
+    persist()
+  })
 
   // Developer tools are only wired up when running from source (the menu that normally offers them is gone).
   if (!app.isPackaged) {
